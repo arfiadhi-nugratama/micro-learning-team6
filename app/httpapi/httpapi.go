@@ -46,11 +46,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		dbCards := make([]*db.Card, 0, len(cards))
 		for _, c := range cards {
 			dbCards = append(dbCards, &db.Card{
-				DeckID:        deck.ID,
-				Question:      c.Question,
-				CorrectAnswer: c.CorrectAnswer,
-				Distractors:   c.Distractors,
-				CreatedAt:     time.Now(),
+				DeckID:          deck.ID,
+				Question:        c.Question,
+				CorrectAnswer:   c.CorrectAnswer,
+				Distractors:     c.Distractors,
+				QuestionJa:      c.QuestionJa,
+				CorrectAnswerJa: c.CorrectAnswerJa,
+				DistractorsJa:   c.DistractorsJa,
+				CreatedAt:       time.Now(),
 			})
 		}
 
@@ -64,6 +67,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		deck.Cards = dbCards
 		for _, c := range deck.Cards {
 			c.Distractors = truncate(c.Distractors, 3)
+			c.DistractorsJa = truncate(c.DistractorsJa, 3)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -87,6 +91,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 		for _, c := range deck.Cards {
 			c.Distractors = truncate(c.Distractors, 3)
+			c.DistractorsJa = truncate(c.DistractorsJa, 3)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -146,11 +151,13 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			if err != nil {
 				// no SRS record — include as due
 				card.Distractors = truncate(card.Distractors, 3)
+				card.DistractorsJa = truncate(card.DistractorsJa, 3)
 				result = append(result, card)
 				continue
 			}
 			if !srsCard.Due.After(now) {
 				card.Distractors = truncate(card.Distractors, 3)
+				card.DistractorsJa = truncate(card.DistractorsJa, 3)
 				result = append(result, card)
 			}
 		}

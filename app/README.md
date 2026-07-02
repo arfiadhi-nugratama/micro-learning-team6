@@ -82,6 +82,6 @@ Ratings: `1` = Again, `2` = Hard, `3` = Good, `4` = Easy (FSRS scale).
 
 ```
 decks       id, module_id, created_at
-cards       id, deck_id, question, correct_answer, distractors TEXT[], created_at
+cards       id, deck_id, question, correct_answer, distractors TEXT[], question_ja, correct_answer_ja, distractors_ja TEXT[], created_at
 srs_cards   id, card_id, learner_id, due, stability, difficulty, reps, lapses, state, last_review
 ```

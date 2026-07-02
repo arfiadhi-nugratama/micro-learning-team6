@@ -11,12 +11,24 @@ import (
 )
 
 type CardData struct {
-	Question      string   `json:"question"`
-	CorrectAnswer string   `json:"correct_answer"`
-	Distractors   []string `json:"distractors"`
+	Question        string   `json:"question"`
+	CorrectAnswer   string   `json:"correct_answer"`
+	Distractors     []string `json:"distractors"`
+	QuestionJa      string   `json:"question_ja"`
+	CorrectAnswerJa string   `json:"correct_answer_ja"`
+	DistractorsJa   []string `json:"distractors_ja"`
 }
 
-const formatInstruction = `Return ONLY a JSON array with no markdown. Each item: {"question": "...", "correct_answer": "...", "distractors": ["wrong1", ..., "wrong7"]}. Each card must have at least 7 distractors. Generate as many cards as the content warrants.`
+const formatInstruction = `Return ONLY a JSON array with no markdown. Each item must have ALL of these fields:
+{
+  "question": "question in English",
+  "correct_answer": "correct answer in English",
+  "distractors": ["at least 7 wrong answers in English"],
+  "question_ja": "question in Japanese",
+  "correct_answer_ja": "correct answer in Japanese",
+  "distractors_ja": ["same distractors in Japanese, matching order"]
+}
+Each card must have at least 7 distractors in both languages. Generate as many cards as the content warrants.`
 
 const systemPrompt = `Instructions:
 Each flashcard should test one clear idea.
