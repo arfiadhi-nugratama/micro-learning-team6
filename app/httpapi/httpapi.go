@@ -28,7 +28,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return nil
 		}
 
-		cards, err := llm.Generate(req.Context(), llm.DefaultSystemPrompt, content)
+		cards, err := llm.Generate(req.Context(), llm.Prompt, content)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return nil
