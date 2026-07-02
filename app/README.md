@@ -53,7 +53,35 @@ Fetch the most recent deck for a module (with cards).
 
 ### DELETE /decks/:deckID
 
-Delete a deck by ID. Returns `204 No Content`.
+Delete a system deck by ID. Returns `204 No Content`.
+
+### POST /decks/:deckID/copy
+
+Shallow-copy a system deck into a user deck.
+
+Body: `{"learner_id": "string"}`
+
+Response: user deck object with cards (pointing to system cards until edited).
+
+### GET /learners/:learnerID/decks
+
+List all user decks for a learner (with cards).
+
+### PUT /user-decks/:deckID/cards/:cardID
+
+Edit a card in a user deck. Triggers copy-on-write if the card is still owned by the system deck — a new card row is created and the junction swapped. If the card was already cloned (owned by this user deck), updates in place.
+
+### POST /user-decks/:deckID/cards
+
+Add a new card to a user deck.
+
+### DELETE /user-decks/:deckID/cards/:cardID
+
+Remove a card from a user deck (junction row only). Does not affect the system deck.
+
+### DELETE /user-decks/:deckID
+
+Delete a user deck and any cards it owns.
 
 ### GET /decks/:deckID/review
 
@@ -81,7 +109,8 @@ Ratings: `1` = Again, `2` = Hard, `3` = Good, `4` = Easy (FSRS scale).
 ## Schema
 
 ```
-decks       id, module_id, created_at
-cards       id, deck_id, question, correct_answer, distractors TEXT[], question_ja, correct_answer_ja, distractors_ja TEXT[], created_at
+decks       id, module_id, deck_type, learner_id, source_deck_id, created_at
+deck_cards  id, deck_id, card_id          (junction — deck membership; COW swaps card_id here)
+cards       id, deck_id (owner), question, correct_answer, distractors TEXT[], question_ja, correct_answer_ja, distractors_ja TEXT[], created_at
 srs_cards   id, card_id, learner_id, due, stability, difficulty, reps, lapses, state, last_review
 ```

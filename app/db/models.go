@@ -6,16 +6,22 @@ import (
 	"github.com/uptrace/bun"
 )
 
+const DeckTypeSystem = "system"
+const DeckTypeUser = "user"
+
 type Deck struct {
 	bun.BaseModel `bun:"table:decks"`
-	ID        int64     `bun:"id,pk,autoincrement" json:"id"`
-	ModuleID  string    `bun:"module_id,notnull" json:"module_id"`
-	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
-	Cards     []*Card   `bun:"rel:has-many,join:id=deck_id" json:"cards,omitempty"`
+	ID           int64     `bun:"id,pk,autoincrement" json:"id"`
+	ModuleID     string    `bun:"module_id,notnull" json:"module_id"`
+	DeckType     string    `bun:"deck_type,notnull" json:"deck_type"`
+	LearnerID    string    `bun:"learner_id" json:"learner_id,omitempty"`
+	SourceDeckID *int64    `bun:"source_deck_id" json:"source_deck_id,omitempty"`
+	CreatedAt    time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	Cards        []*Card   `bun:"-" json:"cards,omitempty"`
 }
 
 type Card struct {
-	bun.BaseModel `bun:"table:cards"`
+	bun.BaseModel   `bun:"table:cards"`
 	ID              int64     `bun:"id,pk,autoincrement" json:"id"`
 	DeckID          int64     `bun:"deck_id,notnull" json:"deck_id"`
 	Question        string    `bun:"question,notnull" json:"question"`
@@ -25,6 +31,13 @@ type Card struct {
 	CorrectAnswerJa string    `bun:"correct_answer_ja,notnull" json:"correct_answer_ja"`
 	DistractorsJa   []string  `bun:"distractors_ja,array,notnull" json:"distractors_ja"`
 	CreatedAt       time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+}
+
+type DeckCard struct {
+	bun.BaseModel `bun:"table:deck_cards"`
+	ID     int64 `bun:"id,pk,autoincrement" json:"id"`
+	DeckID int64 `bun:"deck_id,notnull" json:"deck_id"`
+	CardID int64 `bun:"card_id,notnull" json:"card_id"`
 }
 
 type SRSCard struct {
