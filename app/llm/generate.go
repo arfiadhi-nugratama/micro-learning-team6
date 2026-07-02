@@ -35,21 +35,25 @@ const formatInstruction = `Return ONLY a JSON array with no markdown. Each item 
 Each card must have at least 7 distractors in both languages. Generate as many cards as the content warrants. Each question must be unique — do not generate duplicate or near-duplicate questions across the entire card set.`
 
 const systemPrompt = `Instructions:
-Each flashcard should test one clear idea.
-Write the front as a question or prompt.
-Write the back as a short, accurate answer.
-Prioritize key vocabulary, main ideas, steps, examples, and common misconceptions.
-Do not add outside information.
-If the content is unclear or missing context, make the best possible flashcards from what is provided.
-It should have multiple possible answers both correct and incorrect, then show a set of 10 incorrect 1 correct
-Avoid ambiguous questions
-Keep explanations concise, clear, and easy to memorize.
-Focus on the main learning objectives and any critical details mentioned in the activity.
-Use the MS1 tone of the voice`
+- Each flashcard should test one clear idea.
+- Write the front as a question or prompt.
+- Write the back as a short, accurate answer.
+- Prioritize key vocabulary, main ideas, steps, examples, and common misconceptions.
+- Do not add outside information.
+- If the content is unclear or missing context, make the best possible flashcards from what is provided.
+- It should have multiple possible answers both correct and incorrect, then show a set of 10 incorrect 1 correct
+- Avoid ambiguous questions
+- Keep explanations concise, clear, and easy to memorize.
+- Focus on the main learning objectives and any critical details mentioned in the activity.
+- Use the MS1 tone of the voice
+- Each question should be unique and not repeated across the entire card set.
+- Use MS1 terminology`
 
 const Prompt = systemPrompt + "\n" + formatInstruction
 
 func Generate(ctx context.Context, systemPrompt, content string) ([]CardData, error) {
+	fmt.Println("Generating flashcards with content:", content)
+	fmt.Println("Using system prompt:", systemPrompt)
 	opts := []option.RequestOption{option.WithAPIKey(os.Getenv("OPENAI_API_KEY"))}
 	if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" {
 		opts = append(opts, option.WithBaseURL(baseURL))

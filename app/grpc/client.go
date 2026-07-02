@@ -138,7 +138,7 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) 
 		// fetch JA contentful bodies if configured
 		if c.contentfulURL != "" && c.contentfulToken != "" {
 			for id := range jaConceptTitle {
-				body, ferr := c.fetchConceptBody(ctx, id, "ja")
+				body, ferr := c.fetchConceptBody(ctx, id, "ja-JP")
 				if ferr == nil && body != "" {
 					jaConceptBody[id] = body
 				}
@@ -177,7 +177,7 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) 
 				sb.WriteString(concept.GetTitle())
 				sb.WriteString("\n")
 				if c.contentfulURL != "" && c.contentfulToken != "" {
-					body, ferr := c.fetchConceptBody(ctx, id, "en")
+					body, ferr := c.fetchConceptBody(ctx, id, "en-US")
 					if ferr == nil && body != "" {
 						sb.WriteString("Concept-Body-EN: ")
 						sb.WriteString(body)
