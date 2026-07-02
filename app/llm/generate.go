@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
+	"time"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/shared"
 )
 
 type CardData struct {
@@ -21,7 +24,9 @@ type CardData struct {
 	SourceConceptTitle string   `json:"source_concept_title"`
 }
 
-const formatInstruction = `Return ONLY a JSON array with no markdown. Each item must have ALL of these fields:
+const deduplicatePrompt = `You are given a JSON object with a "cards" array, each item having an "i" (index) and "q" (question). Identify duplicate or near-duplicate questions (same concept tested in essentially the same way). Keep the best version when duplicates exist. Return a JSON object with a single "keep" key containing an array of the indices to keep.`
+
+const formatInstruction = `Return a JSON object with a single "cards" key containing an array. Each item in the array must have ALL of these fields:
 {
   "question": "question in English",
   "correct_answer": "correct answer in English",
@@ -51,22 +56,27 @@ const systemPrompt = `Instructions:
 
 const Prompt = systemPrompt + "\n" + formatInstruction
 
-func Generate(ctx context.Context, systemPrompt, content string) ([]CardData, error) {
-	fmt.Println("Generating flashcards with content:", content)
-	fmt.Println("Using system prompt:", systemPrompt)
+func newOpenAIClient() openai.Client {
 	opts := []option.RequestOption{option.WithAPIKey(os.Getenv("OPENAI_API_KEY"))}
 	if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" {
 		opts = append(opts, option.WithBaseURL(baseURL))
 	}
-	client := openai.NewClient(opts...)
+	return openai.NewClient(opts...)
+}
+
+func Generate(ctx context.Context, systemPrompt, content string) ([]CardData, error) {
+	client := newOpenAIClient()
 
 	fullPrompt := systemPrompt + "\n" + formatInstruction
 
 	resp, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model: "gpt-5.4",
+		Model: "gpt-4.1-mini",
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(fullPrompt),
 			openai.UserMessage(content),
+		},
+		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONObject: &shared.ResponseFormatJSONObjectParam{Type: "json_object"},
 		},
 	})
 	if err != nil {
@@ -77,10 +87,66 @@ func Generate(ctx context.Context, systemPrompt, content string) ([]CardData, er
 		return nil, fmt.Errorf("no choices in response")
 	}
 
-	var cards []CardData
-	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &cards); err != nil {
+	var envelope struct {
+		Cards []CardData `json:"cards"`
+	}
+	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &envelope); err != nil {
 		return nil, fmt.Errorf("parse cards json: %w", err)
 	}
 
-	return cards, nil
+	return envelope.Cards, nil
+}
+
+// Deduplicate calls the LLM with only the questions (+ index) and filters locally.
+func Deduplicate(ctx context.Context, cards []CardData) ([]CardData, error) {
+	type stub struct {
+		I int    `json:"i"`
+		Q string `json:"q"`
+	}
+	stubs := make([]stub, len(cards))
+	for i, c := range cards {
+		stubs[i] = stub{I: i, Q: c.Question}
+	}
+	raw, err := json.Marshal(struct {
+		Cards []stub `json:"cards"`
+	}{Cards: stubs})
+	if err != nil {
+		return nil, fmt.Errorf("marshal cards for dedup: %w", err)
+	}
+
+	client := newOpenAIClient()
+	t := time.Now()
+	slog.InfoContext(ctx, "openai deduplicate start", "input_card_count", len(cards))
+	resp, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Model: "gpt-4.1-mini",
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(deduplicatePrompt),
+			openai.UserMessage(string(raw)),
+		},
+		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONObject: &shared.ResponseFormatJSONObjectParam{Type: "json_object"},
+		},
+	})
+	slog.InfoContext(ctx, "openai deduplicate done", "duration_ms", time.Since(t).Milliseconds())
+	if err != nil {
+		return nil, fmt.Errorf("openai dedup request: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in dedup response")
+	}
+
+	var envelope struct {
+		Keep []int `json:"keep"`
+	}
+	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &envelope); err != nil {
+		return nil, fmt.Errorf("parse dedup response json: %w", err)
+	}
+
+	result := make([]CardData, 0, len(envelope.Keep))
+	for _, i := range envelope.Keep {
+		if i >= 0 && i < len(cards) {
+			result = append(result, cards[i])
+		}
+	}
+	return result, nil
 }

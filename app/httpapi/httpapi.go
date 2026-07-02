@@ -3,10 +3,11 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/dojo-product/team6/db"
@@ -16,6 +17,39 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bunrouter"
 )
+
+// loggingMiddleware logs method, path, status, and duration for every request.
+func loggingMiddleware(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
+	return func(w http.ResponseWriter, req bunrouter.Request) error {
+		start := time.Now()
+		rw := &statusWriter{ResponseWriter: w}
+		err := next(rw, req)
+		slog.InfoContext(req.Context(), "http request",
+			"method", req.Method,
+			"path", req.URL.Path,
+			"status", rw.status,
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
+		return err
+	}
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sw *statusWriter) WriteHeader(code int) {
+	sw.status = code
+	sw.ResponseWriter.WriteHeader(code)
+}
+
+func (sw *statusWriter) Write(b []byte) (int, error) {
+	if sw.status == 0 {
+		sw.status = http.StatusOK
+	}
+	return sw.ResponseWriter.Write(b)
+}
 
 // errorMiddleware catches any error returned by a handler, logs it, and writes
 // a 500 response. Client errors (already written via http.Error) return nil so
@@ -32,7 +66,7 @@ func errorMiddleware(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
 }
 
 func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpcclient.Client, apiKey string) {
-	g := router.Use(errorMiddleware)
+	g := router.Use(loggingMiddleware, errorMiddleware)
 	// --- system deck endpoints ---
 
 	g.POST("/modules/:moduleID/deck", func(w http.ResponseWriter, req bunrouter.Request) error {
@@ -43,18 +77,73 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		// body is optional — ignore decode error (empty body = empty title)
 		json.NewDecoder(req.Body).Decode(&body) //nolint
 
-		content, err := grpcClient.GetModuleContent(req.Context(), moduleID)
+		t0 := time.Now()
+		units, err := grpcClient.GetModuleContent(req.Context(), moduleID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return nil
 		}
+		slog.InfoContext(req.Context(), "fetched module content",
+			"module_id", moduleID,
+			"unit_count", len(units),
+			"duration_ms", time.Since(t0).Milliseconds(),
+		)
 
-		fmt.Println(content)
+		type result struct {
+			cards []llm.CardData
+			err   error
+		}
+		results := make([]result, len(units))
+		var wg sync.WaitGroup
+		t1 := time.Now()
+		slog.InfoContext(req.Context(), "starting llm generation",
+			"module_id", moduleID,
+			"unit_count", len(units),
+		)
+		for i, u := range units {
+			wg.Add(1)
+			go func(idx int, unitTitle, content string) {
+				defer wg.Done()
+				ts := time.Now()
+				slog.InfoContext(req.Context(), "llm generate start", "unit", unitTitle, "content_len", len(content))
+				c, e := llm.Generate(req.Context(), llm.Prompt, content)
+				slog.InfoContext(req.Context(), "llm generate",
+					"unit", unitTitle,
+					"content_len", len(content),
+					"card_count", len(c),
+					"duration_ms", time.Since(ts).Milliseconds(),
+				)
+				results[idx] = result{cards: c, err: e}
+			}(i, u.UnitTitle, u.Content)
+		}
+		wg.Wait()
+		slog.InfoContext(req.Context(), "all units generated",
+			"module_id", moduleID,
+			"duration_ms", time.Since(t1).Milliseconds(),
+		)
 
-		cards, err := llm.Generate(req.Context(), llm.Prompt, content)
+		var combined []llm.CardData
+		for _, r := range results {
+			if r.err != nil {
+				return r.err
+			}
+			combined = append(combined, r.cards...)
+		}
+
+		t2 := time.Now()
+		slog.InfoContext(req.Context(), "starting deduplication",
+			"module_id", moduleID,
+			"combined_card_count", len(combined),
+		)
+		cards, err := llm.Deduplicate(req.Context(), combined)
 		if err != nil {
 			return err
 		}
+		slog.InfoContext(req.Context(), "deduplication done",
+			"module_id", moduleID,
+			"card_count", len(cards),
+			"duration_ms", time.Since(t2).Milliseconds(),
+		)
 
 		deck := &db.Deck{
 			ModuleID:  moduleID,
