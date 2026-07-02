@@ -112,31 +112,38 @@ type UnitContent struct {
 	Content   string
 }
 
-func (c *Client) GetModuleContent(ctx context.Context, moduleID string) ([]UnitContent, error) {
-	slog.InfoContext(ctx, "grpc GetModuleNavTree", "module_id", moduleID, "locale", "en-US")
+// ModuleContent holds all unit chunks plus the localized module titles.
+type ModuleContent struct {
+	TitleEN string
+	TitleJA string
+	Units   []UnitContent
+}
+
+func (c *Client) GetModuleContent(ctx context.Context, moduleID string) (ModuleContent, error) {
+	slog.InfoContext(ctx, "grpc GetModuleNavTree", "module_id", moduleID, "locale", "en")
 	respEN, err := c.svc.GetModuleNavTree(ctx, &apiv1.GetModuleNavTreeRequest{
 		ModuleId: moduleID,
-		Locale:   "en-US",
+		Locale:   "en",
 	})
 	if err != nil {
-		return nil, fmt.Errorf("GetModuleNavTree en: %w", err)
+		return ModuleContent{}, fmt.Errorf("GetModuleNavTree en: %w", err)
 	}
 	modEN := respEN.GetModule()
 	if modEN == nil {
-		return nil, fmt.Errorf("no module in response")
+		return ModuleContent{}, fmt.Errorf("no module in response")
 	}
 
 	// build a sysId→ja concept title/body lookup
 	jaConceptTitle := map[string]string{}
 	jaConceptBody := map[string]string{}
 
-	slog.InfoContext(ctx, "grpc GetModuleNavTree", "module_id", moduleID, "locale", "ja-JP")
+	slog.InfoContext(ctx, "grpc GetModuleNavTree", "module_id", moduleID, "locale", "ja")
 	respJA, err := c.svc.GetModuleNavTree(ctx, &apiv1.GetModuleNavTreeRequest{
 		ModuleId: moduleID,
-		Locale:   "ja-JP",
+		Locale:   "ja",
 	})
 	if err != nil {
-		return nil, fmt.Errorf("GetModuleNavTree ja-JP: %w", err)
+		return ModuleContent{}, fmt.Errorf("GetModuleNavTree ja-JP: %w", err)
 	}
 	if respJA.GetModule() != nil {
 		for _, unit := range respJA.GetModule().GetUnits() {
@@ -150,23 +157,27 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID string) ([]UnitC
 			for id := range jaConceptTitle {
 				body, ferr := c.fetchConceptBody(ctx, id, "ja-JP")
 				if ferr != nil {
-					return nil, fmt.Errorf("fetchConceptBody ja-JP %s: %w", id, ferr)
+					return ModuleContent{}, fmt.Errorf("fetchConceptBody ja-JP %s: %w", id, ferr)
 				}
 				if body == "" {
-					return nil, fmt.Errorf("fetchConceptBody ja-JP %s: empty body", id)
+					return ModuleContent{}, fmt.Errorf("fetchConceptBody ja-JP %s: empty body", id)
 				}
 				jaConceptBody[id] = body
 			}
 		}
 	}
 
-	moduleTitle := modEN.GetTitle()
+	moduleTitleEN := modEN.GetTitle()
+	moduleTitleJA := ""
+	if respJA.GetModule() != nil {
+		moduleTitleJA = respJA.GetModule().GetTitle()
+	}
 	var units []UnitContent
 
 	for _, unit := range modEN.GetUnits() {
 		var sb strings.Builder
 		sb.WriteString("Module: ")
-		sb.WriteString(moduleTitle)
+		sb.WriteString(moduleTitleEN)
 		sb.WriteString("\n\n")
 		sb.WriteString("Unit: ")
 		sb.WriteString(unit.GetTitle())
@@ -195,10 +206,10 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID string) ([]UnitC
 				if c.contentfulURL != "" && c.contentfulToken != "" {
 					body, ferr := c.fetchConceptBody(ctx, id, "en-US")
 					if ferr != nil {
-						return nil, fmt.Errorf("fetchConceptBody en-US %s: %w", id, ferr)
+						return ModuleContent{}, fmt.Errorf("fetchConceptBody en-US %s: %w", id, ferr)
 					}
 					if body == "" {
-						return nil, fmt.Errorf("fetchConceptBody en-US %s: empty body", id)
+						return ModuleContent{}, fmt.Errorf("fetchConceptBody en-US %s: empty body", id)
 					}
 					sb.WriteString("Concept-Body-EN: ")
 					sb.WriteString(body)
@@ -224,5 +235,5 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID string) ([]UnitC
 		units = append(units, UnitContent{UnitTitle: unit.GetTitle(), Content: sb.String()})
 	}
 
-	return units, nil
+	return ModuleContent{TitleEN: moduleTitleEN, TitleJA: moduleTitleJA, Units: units}, nil
 }

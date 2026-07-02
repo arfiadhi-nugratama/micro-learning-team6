@@ -78,14 +78,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		json.NewDecoder(req.Body).Decode(&body) //nolint
 
 		t0 := time.Now()
-		units, err := grpcClient.GetModuleContent(req.Context(), moduleID)
+		moduleContent, err := grpcClient.GetModuleContent(req.Context(), moduleID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return nil
 		}
 		slog.InfoContext(req.Context(), "fetched module content",
 			"module_id", moduleID,
-			"unit_count", len(units),
+			"unit_count", len(moduleContent.Units),
 			"duration_ms", time.Since(t0).Milliseconds(),
 		)
 
@@ -93,14 +93,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			cards []llm.CardData
 			err   error
 		}
-		results := make([]result, len(units))
+		results := make([]result, len(moduleContent.Units))
 		var wg sync.WaitGroup
 		t1 := time.Now()
 		slog.InfoContext(req.Context(), "starting llm generation",
 			"module_id", moduleID,
-			"unit_count", len(units),
+			"unit_count", len(moduleContent.Units),
 		)
-		for i, u := range units {
+		for i, u := range moduleContent.Units {
 			wg.Add(1)
 			go func(idx int, unitTitle, content string) {
 				defer wg.Done()
@@ -145,9 +145,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			"duration_ms", time.Since(t2).Milliseconds(),
 		)
 
+		title := moduleContent.TitleEN
+		if body.Title != "" {
+			title = body.Title
+		}
 		deck := &db.Deck{
 			ModuleID:  moduleID,
-			Title:     body.Title,
+			Title:     title,
+			TitleJa:   moduleContent.TitleJA,
 			DeckType:  db.DeckTypeSystem,
 			CreatedAt: time.Now(),
 		}
@@ -464,6 +469,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		userDeck := &db.Deck{
 			ModuleID:     src.ModuleID,
 			Title:        src.Title,
+			TitleJa:      src.TitleJa,
 			DeckType:     db.DeckTypeUser,
 			LearnerID:    body.LearnerID,
 			SourceDeckID: &sourceDeckID,

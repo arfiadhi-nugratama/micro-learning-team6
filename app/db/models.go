@@ -14,6 +14,7 @@ type Deck struct {
 	ID           int64     `bun:"id,pk,autoincrement" json:"id"`
 	ModuleID     string    `bun:"module_id,notnull" json:"module_id"`
 	Title        string    `bun:"title,notnull" json:"title"`
+	TitleJa      string    `bun:"title_ja,notnull" json:"title_ja"`
 	DeckType     string    `bun:"deck_type,notnull" json:"deck_type"`
 	LearnerID    string    `bun:"learner_id" json:"learner_id,omitempty"`
 	SourceDeckID *int64    `bun:"source_deck_id" json:"source_deck_id,omitempty"`
