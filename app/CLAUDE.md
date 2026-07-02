@@ -28,6 +28,7 @@ Module: `github.com/dojo-product/team6`, Go 1.24.
 ## Conventions
 
 - `distractors` stored as Postgres native `TEXT[]` (`bun:",array"`); same for `distractors_ja`
+- `cards.source_concept_id` + `cards.source_concept_title` — LLM-attributed source concept for each card; populated from `Concept-ID`/`Concept-Title` markers in content passed to LLM
 - All cards have both EN and JA fields (`question_ja`, `correct_answer_ja`, `distractors_ja`) — generated in one LLM call; prompt is always English
 - API responses truncate distractors to 3; DB stores all LLM-generated distractors
 - Migrations use `bun/migrate` with embedded SQL files (`db/*.sql`, named `YYYYMMDDHHMMSS_name.up.sql`). No down migrations. `Migrate()` calls `m.Init()` then `m.Migrate()` at startup.

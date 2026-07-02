@@ -139,7 +139,10 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) 
 			sb.WriteString("\n\n")
 
 			for _, concept := range activity.GetConcepts() {
-				sb.WriteString("Concept: ")
+				sb.WriteString("Concept-ID: ")
+				sb.WriteString(concept.GetSysId())
+				sb.WriteString("\n")
+				sb.WriteString("Concept-Title: ")
 				sb.WriteString(concept.GetTitle())
 				sb.WriteString("\n")
 

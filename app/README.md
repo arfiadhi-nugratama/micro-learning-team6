@@ -111,6 +111,6 @@ Ratings: `1` = Again, `2` = Hard, `3` = Good, `4` = Easy (FSRS scale).
 ```
 decks       id, module_id, deck_type, learner_id, source_deck_id, created_at
 deck_cards  id, deck_id, card_id          (junction — deck membership; COW swaps card_id here)
-cards       id, deck_id (owner), question, correct_answer, distractors TEXT[], question_ja, correct_answer_ja, distractors_ja TEXT[], created_at
+cards       id, deck_id (owner), question, correct_answer, distractors TEXT[], question_ja, correct_answer_ja, distractors_ja TEXT[], source_concept_id, source_concept_title, created_at
 srs_cards   id, card_id, learner_id, due, stability, difficulty, reps, lapses, state, last_review
 ```

@@ -50,14 +50,16 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		dbCards := make([]*db.Card, 0, len(cards))
 		for _, c := range cards {
 			dbCards = append(dbCards, &db.Card{
-				DeckID:          deck.ID,
-				Question:        c.Question,
-				CorrectAnswer:   c.CorrectAnswer,
-				Distractors:     c.Distractors,
-				QuestionJa:      c.QuestionJa,
-				CorrectAnswerJa: c.CorrectAnswerJa,
-				DistractorsJa:   c.DistractorsJa,
-				CreatedAt:       time.Now(),
+				DeckID:             deck.ID,
+				Question:           c.Question,
+				CorrectAnswer:      c.CorrectAnswer,
+				Distractors:        c.Distractors,
+				QuestionJa:         c.QuestionJa,
+				CorrectAnswerJa:    c.CorrectAnswerJa,
+				DistractorsJa:      c.DistractorsJa,
+				SourceConceptID:    c.SourceConceptID,
+				SourceConceptTitle: c.SourceConceptTitle,
+				CreatedAt:          time.Now(),
 			})
 		}
 

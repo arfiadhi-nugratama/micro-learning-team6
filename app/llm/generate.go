@@ -11,12 +11,14 @@ import (
 )
 
 type CardData struct {
-	Question        string   `json:"question"`
-	CorrectAnswer   string   `json:"correct_answer"`
-	Distractors     []string `json:"distractors"`
-	QuestionJa      string   `json:"question_ja"`
-	CorrectAnswerJa string   `json:"correct_answer_ja"`
-	DistractorsJa   []string `json:"distractors_ja"`
+	Question           string   `json:"question"`
+	CorrectAnswer      string   `json:"correct_answer"`
+	Distractors        []string `json:"distractors"`
+	QuestionJa         string   `json:"question_ja"`
+	CorrectAnswerJa    string   `json:"correct_answer_ja"`
+	DistractorsJa      []string `json:"distractors_ja"`
+	SourceConceptID    string   `json:"source_concept_id"`
+	SourceConceptTitle string   `json:"source_concept_title"`
 }
 
 const formatInstruction = `Return ONLY a JSON array with no markdown. Each item must have ALL of these fields:
@@ -26,7 +28,9 @@ const formatInstruction = `Return ONLY a JSON array with no markdown. Each item 
   "distractors": ["at least 7 wrong answers in English"],
   "question_ja": "question in Japanese",
   "correct_answer_ja": "correct answer in Japanese",
-  "distractors_ja": ["same distractors in Japanese, matching order"]
+  "distractors_ja": ["same distractors in Japanese, matching order"],
+  "source_concept_id": "the Concept-ID value from the source concept block this card is based on",
+  "source_concept_title": "the Concept-Title value from the source concept block this card is based on"
 }
 Each card must have at least 7 distractors in both languages. Generate as many cards as the content warrants.`
 
