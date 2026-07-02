@@ -133,6 +133,174 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(rows)
 	})
 
+	router.PUT("/decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
+		deckID, err := parseDeckID(req)
+		if err != nil {
+			http.Error(w, "invalid deckID", http.StatusBadRequest)
+			return nil
+		}
+		cardID, err := parseID(req.Param("cardID"))
+		if err != nil {
+			http.Error(w, "invalid cardID", http.StatusBadRequest)
+			return nil
+		}
+
+		var deck db.Deck
+		if err := database.NewSelect().Model(&deck).Where("id = ? AND deck_type = ?", deckID, db.DeckTypeSystem).Scan(req.Context()); err != nil {
+			http.Error(w, "system deck not found", http.StatusNotFound)
+			return nil
+		}
+
+		var body struct {
+			Question           string   `json:"question"`
+			CorrectAnswer      string   `json:"correct_answer"`
+			Distractors        []string `json:"distractors"`
+			QuestionJa         string   `json:"question_ja"`
+			CorrectAnswerJa    string   `json:"correct_answer_ja"`
+			DistractorsJa      []string `json:"distractors_ja"`
+			SourceConceptID    string   `json:"source_concept_id"`
+			SourceConceptTitle string   `json:"source_concept_title"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return nil
+		}
+
+		var card db.Card
+		if err := database.NewSelect().Model(&card).
+			Join("JOIN deck_cards dc ON dc.card_id = card.id").
+			Where("dc.deck_id = ? AND card.id = ?", deckID, cardID).
+			Scan(req.Context()); err != nil {
+			http.Error(w, "card not found in deck", http.StatusNotFound)
+			return nil
+		}
+
+		card.Question = body.Question
+		card.CorrectAnswer = body.CorrectAnswer
+		card.Distractors = body.Distractors
+		card.QuestionJa = body.QuestionJa
+		card.CorrectAnswerJa = body.CorrectAnswerJa
+		card.DistractorsJa = body.DistractorsJa
+		if body.SourceConceptID != "" {
+			card.SourceConceptID = body.SourceConceptID
+		}
+		if body.SourceConceptTitle != "" {
+			card.SourceConceptTitle = body.SourceConceptTitle
+		}
+
+		if _, err := database.NewUpdate().Model(&card).WherePK().Exec(req.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return nil
+		}
+
+		card.Distractors = truncate(card.Distractors, 3)
+		card.DistractorsJa = truncate(card.DistractorsJa, 3)
+
+		w.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(w).Encode(card)
+	})
+
+	router.POST("/decks/:deckID/cards", func(w http.ResponseWriter, req bunrouter.Request) error {
+		deckID, err := parseDeckID(req)
+		if err != nil {
+			http.Error(w, "invalid deckID", http.StatusBadRequest)
+			return nil
+		}
+
+		var deck db.Deck
+		if err := database.NewSelect().Model(&deck).Where("id = ? AND deck_type = ?", deckID, db.DeckTypeSystem).Scan(req.Context()); err != nil {
+			http.Error(w, "system deck not found", http.StatusNotFound)
+			return nil
+		}
+
+		var body struct {
+			Question           string   `json:"question"`
+			CorrectAnswer      string   `json:"correct_answer"`
+			Distractors        []string `json:"distractors"`
+			QuestionJa         string   `json:"question_ja"`
+			CorrectAnswerJa    string   `json:"correct_answer_ja"`
+			DistractorsJa      []string `json:"distractors_ja"`
+			SourceConceptID    string   `json:"source_concept_id"`
+			SourceConceptTitle string   `json:"source_concept_title"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return nil
+		}
+
+		card := &db.Card{
+			DeckID:             deckID,
+			Question:           body.Question,
+			CorrectAnswer:      body.CorrectAnswer,
+			Distractors:        body.Distractors,
+			QuestionJa:         body.QuestionJa,
+			CorrectAnswerJa:    body.CorrectAnswerJa,
+			DistractorsJa:      body.DistractorsJa,
+			SourceConceptID:    body.SourceConceptID,
+			SourceConceptTitle: body.SourceConceptTitle,
+			CreatedAt:          time.Now(),
+		}
+		if _, err := database.NewInsert().Model(card).Returning("*").Exec(req.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return nil
+		}
+		if _, err := database.NewInsert().Model(&db.DeckCard{DeckID: deckID, CardID: card.ID}).Exec(req.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return nil
+		}
+
+		card.Distractors = truncate(card.Distractors, 3)
+		card.DistractorsJa = truncate(card.DistractorsJa, 3)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		return json.NewEncoder(w).Encode(card)
+	})
+
+	router.DELETE("/decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
+		deckID, err := parseDeckID(req)
+		if err != nil {
+			http.Error(w, "invalid deckID", http.StatusBadRequest)
+			return nil
+		}
+		cardID, err := parseID(req.Param("cardID"))
+		if err != nil {
+			http.Error(w, "invalid cardID", http.StatusBadRequest)
+			return nil
+		}
+
+		var deck db.Deck
+		if err := database.NewSelect().Model(&deck).Where("id = ? AND deck_type = ?", deckID, db.DeckTypeSystem).Scan(req.Context()); err != nil {
+			http.Error(w, "system deck not found", http.StatusNotFound)
+			return nil
+		}
+
+		// materialize COW for any user decks still sharing this card
+		if err := materializeUserCOW(req.Context(), database, []int64{cardID}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return nil
+		}
+
+		res, err := database.NewDelete().Model((*db.DeckCard)(nil)).
+			Where("deck_id = ? AND card_id = ?", deckID, cardID).
+			Exec(req.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return nil
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			http.Error(w, "card not in deck", http.StatusNotFound)
+			return nil
+		}
+
+		// delete card owned by this system deck
+		database.NewDelete().Model((*db.Card)(nil)).Where("id = ? AND deck_id = ?", cardID, deckID).Exec(req.Context()) //nolint
+
+		w.WriteHeader(http.StatusNoContent)
+		return nil
+	})
+
 	router.DELETE("/decks/:deckID", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
@@ -140,7 +308,27 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return nil
 		}
 
-		// delete cards owned by this deck, then the deck (deck_cards cascade)
+		// collect system card IDs before deleting
+		var systemCardIDs []int64
+		if err := database.NewSelect().Model((*db.Card)(nil)).
+			Column("id").
+			Where("deck_id = ?", deckID).
+			Scan(req.Context(), &systemCardIDs); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return nil
+		}
+
+		// materialize COW for any user decks still sharing these cards
+		if err := materializeUserCOW(req.Context(), database, systemCardIDs); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return nil
+		}
+
+		// remove system deck's own junction rows before deleting cards
+		if _, err := database.NewDelete().Model((*db.DeckCard)(nil)).Where("deck_id = ?", deckID).Exec(req.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return nil
+		}
 		if _, err := database.NewDelete().Model((*db.Card)(nil)).Where("deck_id = ?", deckID).Exec(req.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return nil
@@ -584,4 +772,58 @@ func truncate(s []string, n int) []string {
 		return s
 	}
 	return s[:n]
+}
+
+// materializeUserCOW clones any user-deck junction rows that still point at the
+// given system card IDs, giving each user deck its own copy before the system
+// cards are deleted.
+func materializeUserCOW(ctx context.Context, database *bun.DB, systemCardIDs []int64) error {
+	if len(systemCardIDs) == 0 {
+		return nil
+	}
+
+	// find only user-deck junction rows still pointing at system cards
+	var junctions []db.DeckCard
+	if err := database.NewSelect().Model((*db.DeckCard)(nil)).
+		TableExpr("deck_cards AS dc").
+		ColumnExpr("dc.*").
+		Join("JOIN decks d ON d.id = dc.deck_id").
+		Where("dc.card_id IN (?) AND d.deck_type = ?", bun.List(systemCardIDs), db.DeckTypeUser).
+		Scan(ctx, &junctions); err != nil {
+		return err
+	}
+
+	for _, junc := range junctions {
+		// fetch original card
+		var orig db.Card
+		if err := database.NewSelect().Model(&orig).Where("id = ?", junc.CardID).Scan(ctx); err != nil {
+			return err
+		}
+
+		// clone owned by user deck
+		clone := &db.Card{
+			DeckID:             junc.DeckID,
+			Question:           orig.Question,
+			CorrectAnswer:      orig.CorrectAnswer,
+			Distractors:        orig.Distractors,
+			QuestionJa:         orig.QuestionJa,
+			CorrectAnswerJa:    orig.CorrectAnswerJa,
+			DistractorsJa:      orig.DistractorsJa,
+			SourceConceptID:    orig.SourceConceptID,
+			SourceConceptTitle: orig.SourceConceptTitle,
+			CreatedAt:          orig.CreatedAt,
+		}
+		if _, err := database.NewInsert().Model(clone).Returning("id").Exec(ctx); err != nil {
+			return err
+		}
+
+		// swap junction to cloned card
+		if _, err := database.NewUpdate().Model((*db.DeckCard)(nil)).
+			Set("card_id = ?", clone.ID).
+			Where("id = ?", junc.ID).
+			Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }

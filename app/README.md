@@ -55,6 +55,34 @@ Fetch the most recent deck for a module (with cards).
 
 List all system decks (for deck picker UI). Returns each deck with `card_count` — no card details.
 
+### PUT /decks/:deckID/cards/:cardID
+
+Edit a card in a system deck (in place — no copy-on-write).
+
+Body: same fields as `POST /decks/:deckID/cards`. `source_concept_id` and `source_concept_title` updated only if provided and non-empty.
+
+### POST /decks/:deckID/cards
+
+Add a new card to a system deck.
+
+Body:
+```json
+{
+  "question": "string",
+  "correct_answer": "string",
+  "distractors": ["string"],
+  "question_ja": "string",
+  "correct_answer_ja": "string",
+  "distractors_ja": ["string"],
+  "source_concept_id": "string",
+  "source_concept_title": "string"
+}
+```
+
+### DELETE /decks/:deckID/cards/:cardID
+
+Remove a card from a system deck (removes junction row and deletes card). Returns `204 No Content`.
+
 ### DELETE /decks/:deckID
 
 Delete a system deck by ID. Returns `204 No Content`.
