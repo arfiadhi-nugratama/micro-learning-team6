@@ -23,6 +23,7 @@ Module: `github.com/dojo-product/team6`, Go 1.24.
 - `github.com/open-spaced-repetition/go-fsrs/v3` — FSRS algorithm
 - `google.golang.org/grpc` — gRPC client
 - Proto: `github.com/Woven-dojo/ms1-proto/sdk-go/cmsbff/api` (local replace → `~/woven/ms1-proto/sdk-go/cmsbff/api`)
+- Contentful GraphQL: optional `CONTENTFUL_SPACE_ID` + `CONTENTFUL_ENVIRONMENT` + `CONTENTFUL_ACCESS_TOKEN` — when all set, `GetModuleContent` fetches full concept body via direct Contentful GraphQL (`GetConcept` query) in addition to nav tree titles. Gracefully skipped if env vars absent.
 
 ## Conventions
 

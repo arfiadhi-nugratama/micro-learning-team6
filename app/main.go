@@ -36,7 +36,11 @@ func main() {
 		log.Fatal("CMS_GRPC_ADDR is required")
 	}
 
-	grpcClient, err := grpcclient.NewClient(cmsGRPCAddr)
+	contentfulSpaceID := os.Getenv("CONTENTFUL_SPACE_ID")
+	contentfulEnvironment := os.Getenv("CONTENTFUL_ENVIRONMENT")
+	contentfulToken := os.Getenv("CONTENTFUL_ACCESS_TOKEN")
+
+	grpcClient, err := grpcclient.NewClient(cmsGRPCAddr, contentfulSpaceID, contentfulEnvironment, contentfulToken)
 	if err != nil {
 		log.Fatalf("grpc client: %v", err)
 	}

@@ -7,9 +7,12 @@ Go HTTP API that generates flashcard decks from course module content using Open
 | Variable | Required | Description |
 |---|---|---|
 | `DATABASE_URL` | yes | Postgres DSN (e.g. `postgres://user:pass@host:5432/db`) |
-| `CMS_GRPC_ADDR` | yes | CmsBffV1Service gRPC address (e.g. `localhost:50051`) |
+| `CMS_GRPC_ADDR` | yes | CmsBffV1Service gRPC address (e.g. `localhost:9090`) |
 | `OPENAI_API_KEY` | yes | OpenAI API key |
 | `OPENAI_BASE_URL` | no | Override OpenAI API base URL (e.g. for proxies or compatible endpoints) |
+| `CONTENTFUL_SPACE_ID` | no | Contentful space ID. Required with the other two for full concept body fetching. |
+| `CONTENTFUL_ENVIRONMENT` | no | Contentful environment (e.g. `development`, `master`). |
+| `CONTENTFUL_ACCESS_TOKEN` | no | Contentful Content Delivery API token. When all three Contentful vars are set, fetches full concept body text for richer flashcard generation. |
 | `PORT` | no | HTTP listen port (default `8080`) |
 
 ## Running
