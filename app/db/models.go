@@ -45,6 +45,24 @@ type DeckCard struct {
 	CardID int64 `bun:"card_id,notnull" json:"card_id"`
 }
 
+var ValidFeedbackCategories = map[string]bool{
+	"wrong_answer":      true,
+	"wrong_distractor":  true,
+	"unclear_question":  true,
+	"bad_translation":   true,
+	"other":             true,
+}
+
+type CardFeedback struct {
+	bun.BaseModel `bun:"table:card_feedback"`
+	ID          int64     `bun:"id,pk,autoincrement" json:"id"`
+	CardID      int64     `bun:"card_id,notnull" json:"card_id"`
+	LearnerID   string    `bun:"learner_id,notnull" json:"learner_id"`
+	Category    string    `bun:"category,notnull" json:"category"`
+	Description string    `bun:"description,notnull" json:"description"`
+	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+}
+
 type SRSCard struct {
 	bun.BaseModel `bun:"table:srs_cards"`
 	ID         int64     `bun:"id,pk,autoincrement" json:"id"`

@@ -683,6 +683,88 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(result)
 	})
 
+	// --- feedback endpoints ---
+
+	g.POST("/cards/:cardID/feedback", func(w http.ResponseWriter, req bunrouter.Request) error {
+		cardID, err := parseID(req.Param("cardID"))
+		if err != nil {
+			http.Error(w, "invalid cardID", http.StatusBadRequest)
+			return nil
+		}
+
+		var body struct {
+			LearnerID   string `json:"learner_id"`
+			Category    string `json:"category"`
+			Description string `json:"description"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return nil
+		}
+		if body.LearnerID == "" {
+			http.Error(w, "learner_id required", http.StatusBadRequest)
+			return nil
+		}
+		if !db.ValidFeedbackCategories[body.Category] {
+			http.Error(w, "invalid category", http.StatusBadRequest)
+			return nil
+		}
+
+		feedback := &db.CardFeedback{
+			CardID:      cardID,
+			LearnerID:   body.LearnerID,
+			Category:    body.Category,
+			Description: body.Description,
+			CreatedAt:   time.Now(),
+		}
+		if _, err := database.NewInsert().Model(feedback).Returning("*").Exec(req.Context()); err != nil {
+			return err
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		return json.NewEncoder(w).Encode(feedback)
+	})
+
+	g.GET("/cards/:cardID/feedback", func(w http.ResponseWriter, req bunrouter.Request) error {
+		cardID, err := parseID(req.Param("cardID"))
+		if err != nil {
+			http.Error(w, "invalid cardID", http.StatusBadRequest)
+			return nil
+		}
+
+		var rows []db.CardFeedback
+		if err := database.NewSelect().Model(&rows).
+			Where("card_id = ?", cardID).
+			OrderExpr("created_at DESC").
+			Scan(req.Context()); err != nil {
+			return err
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(w).Encode(rows)
+	})
+
+	g.GET("/decks/:deckID/feedback", func(w http.ResponseWriter, req bunrouter.Request) error {
+		deckID, err := parseDeckID(req)
+		if err != nil {
+			http.Error(w, "invalid deckID", http.StatusBadRequest)
+			return nil
+		}
+
+		var rows []db.CardFeedback
+		if err := database.NewSelect().Model(&rows).
+			Join("JOIN cards c ON c.id = card_feedback.card_id").
+			Where("c.deck_id = ?", deckID).
+			OrderExpr("card_feedback.created_at DESC").
+			Scan(req.Context()); err != nil {
+			return err
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(w).Encode(rows)
+	})
+
 	g.POST("/cards/:cardID/review", func(w http.ResponseWriter, req bunrouter.Request) error {
 		cardID, err := parseID(req.Param("cardID"))
 		if err != nil {

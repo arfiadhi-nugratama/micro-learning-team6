@@ -17,6 +17,8 @@ tags:
     description: Learner-owned copies of system decks with FSRS progress
   - name: Reviews
     description: Spaced repetition study sessions and card rating
+  - name: Feedback
+    description: Learner feedback on individual cards
 
 paths:
   /modules/{moduleID}/deck:
@@ -354,6 +356,72 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /cards/{cardID}/feedback:
+    post:
+      summary: Submit feedback for a card
+      operationId: submitCardFeedback
+      tags: [Feedback]
+      parameters:
+        - $ref: '#/components/parameters/cardID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardFeedbackInput'
+      responses:
+        '201':
+          description: Feedback recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardFeedback'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    get:
+      summary: List feedback for a card
+      operationId: listCardFeedback
+      tags: [Feedback]
+      parameters:
+        - $ref: '#/components/parameters/cardID'
+      responses:
+        '200':
+          description: Feedback list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CardFeedback'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decks/{deckID}/feedback:
+    get:
+      summary: List all feedback for cards in a deck
+      operationId: listDeckFeedback
+      tags: [Feedback]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+      responses:
+        '200':
+          description: Feedback list across all cards in deck
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CardFeedback'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /cards/{cardID}/review:
     post:
       summary: Submit a review rating for a card
@@ -555,6 +623,39 @@ components:
           type: array
           items:
             type: string
+
+    CardFeedback:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        card_id:
+          type: integer
+          format: int64
+        learner_id:
+          type: string
+        category:
+          type: string
+          enum: [wrong_answer, wrong_distractor, unclear_question, bad_translation, other]
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CardFeedbackInput:
+      type: object
+      required: [learner_id, category]
+      properties:
+        learner_id:
+          type: string
+        category:
+          type: string
+          enum: [wrong_answer, wrong_distractor, unclear_question, bad_translation, other]
+        description:
+          type: string
+          description: Optional free-text elaboration
 
     SRSCard:
       type: object
