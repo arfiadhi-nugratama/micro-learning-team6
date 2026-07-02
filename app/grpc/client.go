@@ -105,11 +105,10 @@ func (c *Client) fetchConceptBody(ctx context.Context, conceptID, locale string)
 	return result.Data.Concept.Body, nil
 }
 
-func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) (string, error) {
-	// fetch EN tree always; fetch JA tree in parallel when locale is not already "ja"
+func (c *Client) GetModuleContent(ctx context.Context, moduleID string) (string, error) {
 	respEN, err := c.svc.GetModuleNavTree(ctx, &apiv1.GetModuleNavTreeRequest{
 		ModuleId: moduleID,
-		Locale:   "en",
+		Locale:   "en-US",
 	})
 	if err != nil {
 		return "", fmt.Errorf("GetModuleNavTree en: %w", err)
@@ -125,7 +124,7 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) 
 
 	respJA, err := c.svc.GetModuleNavTree(ctx, &apiv1.GetModuleNavTreeRequest{
 		ModuleId: moduleID,
-		Locale:   "ja",
+		Locale:   "ja-JP",
 	})
 	if err == nil && respJA.GetModule() != nil {
 		for _, unit := range respJA.GetModule().GetUnits() {

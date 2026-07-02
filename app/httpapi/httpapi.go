@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -36,22 +37,19 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 	g.POST("/modules/:moduleID/deck", func(w http.ResponseWriter, req bunrouter.Request) error {
 		moduleID := req.Param("moduleID")
-		locale := req.URL.Query().Get("locale")
-		if locale == "" {
-			locale = "en"
-		}
-
 		var body struct {
 			Title string `json:"title"`
 		}
 		// body is optional — ignore decode error (empty body = empty title)
 		json.NewDecoder(req.Body).Decode(&body) //nolint
 
-		content, err := grpcClient.GetModuleContent(req.Context(), moduleID, locale)
+		content, err := grpcClient.GetModuleContent(req.Context(), moduleID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return nil
 		}
+
+		fmt.Println(content)
 
 		cards, err := llm.Generate(req.Context(), llm.Prompt, content)
 		if err != nil {
@@ -767,4 +765,3 @@ func truncate(s []string, n int) []string {
 	}
 	return s[:n]
 }
-

@@ -27,12 +27,7 @@ paths:
       tags: [System Decks]
       parameters:
         - $ref: '#/components/parameters/moduleID'
-        - name: locale
-          in: query
-          description: Locale for module content
-          schema:
-            type: string
-            default: en
+
       requestBody:
         content:
           application/json:
