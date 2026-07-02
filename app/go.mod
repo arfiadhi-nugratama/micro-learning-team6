@@ -3,7 +3,7 @@ module github.com/dojo-product/team6
 go 1.24.0
 
 require (
-	github.com/Woven-dojo/ms1-proto/sdk-go/cmsbff/api v0.0.0
+	github.com/dojo-product/ms1-proto/sdk-go/cmsbff/api v1.7.0
 	github.com/open-spaced-repetition/go-fsrs/v3 v3.0.0
 	github.com/openai/openai-go v1.12.0
 	github.com/uptrace/bun v1.2.18
@@ -34,5 +34,3 @@ require (
 	google.golang.org/protobuf v1.34.2 // indirect
 	mellium.im/sasl v0.3.2 // indirect
 )
-
-replace github.com/Woven-dojo/ms1-proto/sdk-go/cmsbff/api => /Users/truong.phan/woven/ms1-proto/sdk-go/cmsbff/api

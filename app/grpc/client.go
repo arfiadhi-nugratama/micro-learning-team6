@@ -8,17 +8,17 @@ import (
 	"net/http"
 	"strings"
 
-	apiv1 "github.com/Woven-dojo/ms1-proto/sdk-go/cmsbff/api/v1"
+	apiv1 "github.com/dojo-product/ms1-proto/sdk-go/cmsbff/api/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 type Client struct {
-	conn               *grpc.ClientConn
-	svc                apiv1.CmsBffV1ServiceClient
-	contentfulURL      string
-	contentfulToken    string
-	httpClient         *http.Client
+	conn            *grpc.ClientConn
+	svc             apiv1.CmsBffV1ServiceClient
+	contentfulURL   string
+	contentfulToken string
+	httpClient      *http.Client
 }
 
 func NewClient(addr, contentfulSpaceID, contentfulEnvironment, contentfulToken string) (*Client, error) {
@@ -58,9 +58,11 @@ type gqlRequest struct {
 type gqlConceptResponse struct {
 	Data struct {
 		Concept struct {
-			Sys     struct{ ID string `json:"id"` } `json:"sys"`
-			Title   string                          `json:"ms1Title"`
-			Body    string                          `json:"body"`
+			Sys struct {
+				ID string `json:"id"`
+			} `json:"sys"`
+			Title string `json:"ms1Title"`
+			Body  string `json:"body"`
 		} `json:"concept"`
 	} `json:"data"`
 	Errors []struct {
