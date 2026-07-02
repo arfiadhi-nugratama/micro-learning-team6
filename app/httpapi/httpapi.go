@@ -109,6 +109,30 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(deck)
 	})
 
+	router.GET("/decks", func(w http.ResponseWriter, req bunrouter.Request) error {
+		type deckSummary struct {
+			db.Deck
+			CardCount int `bun:"card_count" json:"card_count"`
+		}
+
+		var rows []deckSummary
+		if err := database.NewSelect().
+			TableExpr("decks AS deck").
+			ColumnExpr("deck.*").
+			ColumnExpr("COUNT(dc.id) AS card_count").
+			Join("LEFT JOIN deck_cards dc ON dc.deck_id = deck.id").
+			Where("deck.deck_type = ?", db.DeckTypeSystem).
+			GroupExpr("deck.id").
+			OrderExpr("deck.created_at DESC").
+			Scan(req.Context(), &rows); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return nil
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(w).Encode(rows)
+	})
+
 	router.DELETE("/decks/:deckID", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {

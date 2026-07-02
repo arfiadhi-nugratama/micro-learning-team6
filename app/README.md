@@ -51,6 +51,10 @@ Response: deck object with cards. Each card has `distractors` truncated to 3.
 
 Fetch the most recent deck for a module (with cards).
 
+### GET /decks
+
+List all system decks (for deck picker UI). Returns each deck with `card_count` — no card details.
+
 ### DELETE /decks/:deckID
 
 Delete a system deck by ID. Returns `204 No Content`.
