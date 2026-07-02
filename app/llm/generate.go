@@ -32,7 +32,7 @@ const formatInstruction = `Return ONLY a JSON array with no markdown. Each item 
   "source_concept_id": "the Concept-ID value from the source concept block this card is based on",
   "source_concept_title": "the Concept-Title value from the source concept block this card is based on"
 }
-Each card must have at least 7 distractors in both languages. Generate as many cards as the content warrants.`
+Each card must have at least 7 distractors in both languages. Generate as many cards as the content warrants. Each question must be unique — do not generate duplicate or near-duplicate questions across the entire card set.`
 
 const systemPrompt = `Instructions:
 Each flashcard should test one clear idea.
