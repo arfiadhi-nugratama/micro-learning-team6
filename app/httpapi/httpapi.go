@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -15,10 +16,25 @@ import (
 	"github.com/uptrace/bunrouter"
 )
 
+// errorMiddleware catches any error returned by a handler, logs it, and writes
+// a 500 response. Client errors (already written via http.Error) return nil so
+// they never reach here.
+func errorMiddleware(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
+	return func(w http.ResponseWriter, req bunrouter.Request) error {
+		err := next(w, req)
+		if err != nil {
+			log.Printf("ERROR %s %s: %v", req.Method, req.URL.Path, err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		}
+		return nil
+	}
+}
+
 func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpcclient.Client, apiKey string) {
+	g := router.Use(errorMiddleware)
 	// --- system deck endpoints ---
 
-	router.POST("/modules/:moduleID/deck", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.POST("/modules/:moduleID/deck", func(w http.ResponseWriter, req bunrouter.Request) error {
 		moduleID := req.Param("moduleID")
 		locale := req.URL.Query().Get("locale")
 		if locale == "" {
@@ -33,8 +49,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 		cards, err := llm.Generate(req.Context(), llm.Prompt, content)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 
 		deck := &db.Deck{
@@ -44,8 +59,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			CreatedAt: time.Now(),
 		}
 		if _, err := database.NewInsert().Model(deck).Returning("*").Exec(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 
 		dbCards := make([]*db.Card, 0, len(cards))
@@ -66,16 +80,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 		if len(dbCards) > 0 {
 			if _, err := database.NewInsert().Model(&dbCards).Returning("*").Exec(req.Context()); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return nil
+				return err
 			}
 			deckCards := make([]*db.DeckCard, 0, len(dbCards))
 			for _, c := range dbCards {
 				deckCards = append(deckCards, &db.DeckCard{DeckID: deck.ID, CardID: c.ID})
 			}
 			if _, err := database.NewInsert().Model(&deckCards).Exec(req.Context()); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return nil
+				return err
 			}
 		}
 
@@ -86,7 +98,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(deck)
 	})
 
-	router.GET("/modules/:moduleID/deck", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.GET("/modules/:moduleID/deck", func(w http.ResponseWriter, req bunrouter.Request) error {
 		moduleID := req.Param("moduleID")
 
 		var deck db.Deck
@@ -101,8 +113,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		if err := loadDeckCards(req.Context(), database, &deck); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 		truncateDeck(&deck)
 
@@ -110,7 +121,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(deck)
 	})
 
-	router.GET("/decks", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.GET("/decks", func(w http.ResponseWriter, req bunrouter.Request) error {
 		type deckSummary struct {
 			db.Deck
 			CardCount int `bun:"card_count" json:"card_count"`
@@ -126,15 +137,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			GroupExpr("deck.id").
 			OrderExpr("deck.created_at DESC").
 			Scan(req.Context(), &rows); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		return json.NewEncoder(w).Encode(rows)
 	})
 
-	router.GET("/decks/:deckID", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.GET("/decks/:deckID", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -150,8 +160,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		if err := loadDeckCards(req.Context(), database, &deck); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 		truncateDeck(&deck)
 
@@ -159,7 +168,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(deck)
 	})
 
-	router.PUT("/decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.PUT("/decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -215,8 +224,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		if _, err := database.NewUpdate().Model(&card).WherePK().Exec(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 
 		card.Distractors = truncate(card.Distractors, 3)
@@ -226,7 +234,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(card)
 	})
 
-	router.POST("/decks/:deckID/cards", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.POST("/decks/:deckID/cards", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -267,12 +275,10 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			CreatedAt:          time.Now(),
 		}
 		if _, err := database.NewInsert().Model(card).Returning("*").Exec(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 		if _, err := database.NewInsert().Model(&db.DeckCard{DeckID: deckID, CardID: card.ID}).Exec(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 
 		card.Distractors = truncate(card.Distractors, 3)
@@ -283,7 +289,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(card)
 	})
 
-	router.DELETE("/decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.DELETE("/decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -301,8 +307,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			Where("id = ? AND deck_id = ? AND deleted_at IS NULL", cardID, deckID).
 			Exec(req.Context())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 		n, _ := res.RowsAffected()
 		if n == 0 {
@@ -314,7 +319,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return nil
 	})
 
-	router.DELETE("/decks/:deckID", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.DELETE("/decks/:deckID", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -327,8 +332,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			Where("id = ? AND deleted_at IS NULL", deckID).
 			Exec(req.Context())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 		n, _ := res.RowsAffected()
 		if n == 0 {
@@ -342,7 +346,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 	// --- user deck endpoints ---
 
-	router.POST("/decks/:deckID/copy", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.POST("/decks/:deckID/copy", func(w http.ResponseWriter, req bunrouter.Request) error {
 		sourceDeckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -373,8 +377,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			CreatedAt:    time.Now(),
 		}
 		if _, err := database.NewInsert().Model(userDeck).Returning("*").Exec(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 
 		// shallow copy: duplicate deck_cards rows pointing to same card IDs
@@ -382,13 +385,11 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			INSERT INTO deck_cards (deck_id, card_id)
 			SELECT ?, card_id FROM deck_cards WHERE deck_id = ?
 		`, userDeck.ID, sourceDeckID).Exec(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 
 		if err := loadDeckCards(req.Context(), database, userDeck); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 		truncateDeck(userDeck)
 
@@ -397,7 +398,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(userDeck)
 	})
 
-	router.GET("/learners/:learnerID/decks", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.GET("/learners/:learnerID/decks", func(w http.ResponseWriter, req bunrouter.Request) error {
 		learnerID := req.Param("learnerID")
 
 		var decks []db.Deck
@@ -405,14 +406,12 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			Where("learner_id = ? AND deck_type = ? AND deleted_at IS NULL", learnerID, db.DeckTypeUser).
 			OrderExpr("created_at DESC").
 			Scan(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 
 		for i := range decks {
 			if err := loadDeckCards(req.Context(), database, &decks[i]); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return nil
+				return err
 			}
 			truncateDeck(&decks[i])
 		}
@@ -421,7 +420,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(decks)
 	})
 
-	router.PUT("/user-decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.PUT("/user-decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -469,8 +468,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			existing.CorrectAnswerJa = body.CorrectAnswerJa
 			existing.DistractorsJa = body.DistractorsJa
 			if _, err := database.NewUpdate().Model(&existing).WherePK().Exec(req.Context()); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return nil
+				return err
 			}
 			newCardID = existing.ID
 		} else {
@@ -486,24 +484,21 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 				CreatedAt:       time.Now(),
 			}
 			if _, err := database.NewInsert().Model(newCard).Returning("*").Exec(req.Context()); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return nil
+				return err
 			}
 			// swap junction row
 			if _, err := database.NewUpdate().Model((*db.DeckCard)(nil)).
 				Set("card_id = ?", newCard.ID).
 				Where("deck_id = ? AND card_id = ?", deckID, cardID).
 				Exec(req.Context()); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return nil
+				return err
 			}
 			newCardID = newCard.ID
 		}
 
 		var result db.Card
 		if err := database.NewSelect().Model(&result).Where("id = ?", newCardID).Scan(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 		result.Distractors = truncate(result.Distractors, 3)
 		result.DistractorsJa = truncate(result.DistractorsJa, 3)
@@ -512,7 +507,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(result)
 	})
 
-	router.POST("/user-decks/:deckID/cards", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.POST("/user-decks/:deckID/cards", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -549,12 +544,10 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			CreatedAt:       time.Now(),
 		}
 		if _, err := database.NewInsert().Model(card).Returning("*").Exec(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 		if _, err := database.NewInsert().Model(&db.DeckCard{DeckID: deckID, CardID: card.ID}).Exec(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 
 		card.Distractors = truncate(card.Distractors, 3)
@@ -565,7 +558,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(card)
 	})
 
-	router.DELETE("/user-decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.DELETE("/user-decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -584,8 +577,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			Where("id = ? AND deck_id = ? AND deleted_at IS NULL", cardID, deckID).
 			Exec(req.Context())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 		affected, _ := ur.RowsAffected()
 		if affected == 0 {
@@ -594,8 +586,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 				Where("deck_id = ? AND card_id = ?", deckID, cardID).
 				Exec(req.Context())
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return nil
+				return err
 			}
 			n, _ := res.RowsAffected()
 			if n == 0 {
@@ -608,7 +599,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return nil
 	})
 
-	router.DELETE("/user-decks/:deckID", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.DELETE("/user-decks/:deckID", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -616,19 +607,20 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		now := time.Now()
-		// soft-delete cards owned by this user deck
-		database.NewUpdate().Model((*db.Card)(nil)). //nolint
-							Set("deleted_at = ?", now).
-							Where("deck_id = ? AND deleted_at IS NULL", deckID).
-							Exec(req.Context())
+		// soft-delete cards owned by this user deck (best-effort — deck delete proceeds regardless)
+		if _, err := database.NewUpdate().Model((*db.Card)(nil)).
+			Set("deleted_at = ?", now).
+			Where("deck_id = ? AND deleted_at IS NULL", deckID).
+			Exec(req.Context()); err != nil {
+			log.Printf("WARN soft-delete cards for deck %d: %v", deckID, err)
+		}
 
 		res, err := database.NewUpdate().Model((*db.Deck)(nil)).
 			Set("deleted_at = ?", now).
 			Where("id = ? AND deleted_at IS NULL", deckID).
 			Exec(req.Context())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 		n, _ := res.RowsAffected()
 		if n == 0 {
@@ -642,7 +634,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 	// --- review endpoints ---
 
-	router.GET("/decks/:deckID/review", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.GET("/decks/:deckID/review", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
 			http.Error(w, "invalid deckID", http.StatusBadRequest)
@@ -660,8 +652,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			Join("JOIN deck_cards dc ON dc.card_id = card.id").
 			Where("dc.deck_id = ? AND card.deleted_at IS NULL", deckID).
 			Scan(req.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return nil
+			return err
 		}
 
 		now := time.Now()
@@ -688,7 +679,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(result)
 	})
 
-	router.POST("/cards/:cardID/review", func(w http.ResponseWriter, req bunrouter.Request) error {
+	g.POST("/cards/:cardID/review", func(w http.ResponseWriter, req bunrouter.Request) error {
 		cardID, err := parseID(req.Param("cardID"))
 		if err != nil {
 			http.Error(w, "invalid cardID", http.StatusBadRequest)
@@ -723,13 +714,11 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 		if srsCard.ID == 0 {
 			if _, err := database.NewInsert().Model(&srsCard).Returning("*").Exec(req.Context()); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return nil
+				return err
 			}
 		} else {
 			if _, err := database.NewUpdate().Model(&srsCard).WherePK().Exec(req.Context()); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return nil
+				return err
 			}
 		}
 
