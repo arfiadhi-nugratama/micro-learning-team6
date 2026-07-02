@@ -1,0 +1,512 @@
+openapi: 3.1.0
+info:
+  title: Micro-Learning Flashcards API
+  description: |
+    Flashcard deck management with FSRS spaced repetition scheduling.
+    Supports AI-generated system decks and learner-owned personal decks.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+paths:
+  /modules/{moduleID}/deck:
+    post:
+      summary: Generate system deck for a module
+      description: Triggers LLM-based card generation from module content via the CMS gRPC service. Replaces any existing system deck for the module.
+      operationId: generateSystemDeck
+      tags: [System Decks]
+      parameters:
+        - $ref: '#/components/parameters/moduleID'
+        - name: locale
+          in: query
+          description: Locale for module content
+          schema:
+            type: string
+            default: en
+      responses:
+        '200':
+          description: Deck generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deck'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+
+    get:
+      summary: Get system deck for a module
+      operationId: getSystemDeck
+      tags: [System Decks]
+      parameters:
+        - $ref: '#/components/parameters/moduleID'
+      responses:
+        '200':
+          description: System deck with cards
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deck'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decks:
+    get:
+      summary: List all system decks
+      description: Returns all system decks with card counts.
+      operationId: listSystemDecks
+      tags: [System Decks]
+      responses:
+        '200':
+          description: List of system decks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeckSummary'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decks/{deckID}:
+    delete:
+      summary: Delete a system deck
+      operationId: deleteSystemDeck
+      tags: [System Decks]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+      responses:
+        '204':
+          description: Deck deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decks/{deckID}/copy:
+    post:
+      summary: Copy system deck to a personal deck
+      description: |
+        Creates a learner-owned copy of a system deck using a shallow copy
+        (shared card references). Cards are cloned on first edit (copy-on-write).
+      operationId: copyDeckToUserDeck
+      tags: [Personal Decks]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [learner_id]
+              properties:
+                learner_id:
+                  type: string
+                  description: ID of the learner who will own the copy
+      responses:
+        '201':
+          description: Personal deck created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deck'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decks/{deckID}/review:
+    get:
+      summary: Get due cards for review
+      description: Returns cards that are due for review for the given learner, ordered by due date. Initializes SRS state for new cards.
+      operationId: getDueCards
+      tags: [Reviews]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+        - name: learner_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Due cards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReviewCard'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /learners/{learnerID}/decks:
+    get:
+      summary: List personal decks for a learner
+      operationId: listLearnerDecks
+      tags: [Personal Decks]
+      parameters:
+        - $ref: '#/components/parameters/learnerID'
+      responses:
+        '200':
+          description: Learner's personal decks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Deck'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /user-decks/{deckID}:
+    delete:
+      summary: Delete a personal deck
+      operationId: deleteUserDeck
+      tags: [Personal Decks]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+      responses:
+        '204':
+          description: Deck deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /user-decks/{deckID}/cards:
+    post:
+      summary: Add a card to a personal deck
+      operationId: addCardToUserDeck
+      tags: [Personal Decks]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardInput'
+      responses:
+        '201':
+          description: Card added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /user-decks/{deckID}/cards/{cardID}:
+    put:
+      summary: Update a card in a personal deck
+      description: |
+        Updates a card. If the card is shared (owned by a system deck), it is
+        cloned first (copy-on-write) so only this personal deck is affected.
+      operationId: updateUserDeckCard
+      tags: [Personal Decks]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+        - $ref: '#/components/parameters/cardID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardInput'
+      responses:
+        '200':
+          description: Card updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Remove a card from a personal deck
+      operationId: removeCardFromUserDeck
+      tags: [Personal Decks]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+        - $ref: '#/components/parameters/cardID'
+      responses:
+        '204':
+          description: Card removed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /cards/{cardID}/review:
+    post:
+      summary: Submit a review rating for a card
+      description: |
+        Records a review result and updates the FSRS schedule for the card.
+        Rating scale: 1=Again, 2=Hard, 3=Good, 4=Easy.
+      operationId: submitCardReview
+      tags: [Reviews]
+      parameters:
+        - $ref: '#/components/parameters/cardID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [learner_id, rating]
+              properties:
+                learner_id:
+                  type: string
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 4
+                  description: "FSRS rating: 1=Again, 2=Hard, 3=Good, 4=Easy"
+      responses:
+        '200':
+          description: Review recorded; updated SRS state returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SRSCard'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  parameters:
+    moduleID:
+      name: moduleID
+      in: path
+      required: true
+      schema:
+        type: string
+
+    deckID:
+      name: deckID
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+
+    cardID:
+      name: cardID
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+
+    learnerID:
+      name: learnerID
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    Deck:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        module_id:
+          type: string
+        deck_type:
+          type: string
+          enum: [system, user]
+        learner_id:
+          type: string
+          description: Present only for user decks
+        source_deck_id:
+          type: integer
+          format: int64
+          description: ID of the system deck this was copied from (user decks only)
+        created_at:
+          type: string
+          format: date-time
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+
+    DeckSummary:
+      allOf:
+        - $ref: '#/components/schemas/Deck'
+        - type: object
+          properties:
+            card_count:
+              type: integer
+              description: Number of cards in the deck
+
+    Card:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        deck_id:
+          type: integer
+          format: int64
+        question:
+          type: string
+        correct_answer:
+          type: string
+        distractors:
+          type: array
+          items:
+            type: string
+          maxItems: 3
+        question_ja:
+          type: string
+        correct_answer_ja:
+          type: string
+        distractors_ja:
+          type: array
+          items:
+            type: string
+          maxItems: 3
+        source_concept_id:
+          type: string
+        source_concept_title:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CardInput:
+      type: object
+      required: [question, correct_answer, distractors]
+      properties:
+        question:
+          type: string
+        correct_answer:
+          type: string
+        distractors:
+          type: array
+          items:
+            type: string
+        question_ja:
+          type: string
+        correct_answer_ja:
+          type: string
+        distractors_ja:
+          type: array
+          items:
+            type: string
+
+    SRSCard:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        card_id:
+          type: integer
+          format: int64
+        learner_id:
+          type: string
+        due:
+          type: string
+          format: date-time
+          description: Next review due date
+        stability:
+          type: number
+          format: double
+          description: FSRS stability parameter
+        difficulty:
+          type: number
+          format: double
+          description: FSRS difficulty parameter
+        reps:
+          type: integer
+          description: Total number of reviews
+        lapses:
+          type: integer
+          description: Number of times the card was forgotten
+        state:
+          type: integer
+          description: "FSRS card state: 0=New, 1=Learning, 2=Review, 3=Relearning"
+        last_review:
+          type: string
+          format: date-time
+
+    ReviewCard:
+      allOf:
+        - $ref: '#/components/schemas/Card'
+        - type: object
+          properties:
+            srs:
+              $ref: '#/components/schemas/SRSCard'
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    BadGateway:
+      description: Upstream service error (CMS gRPC)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+tags:
+  - name: System Decks
+    description: AI-generated read-only decks, one per course module
+  - name: Personal Decks
+    description: Learner-owned copies of system decks with FSRS progress
+  - name: Reviews
+    description: Spaced repetition study sessions and card rating
