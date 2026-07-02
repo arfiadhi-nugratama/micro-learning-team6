@@ -1,0 +1,27 @@
+CREATE TABLE IF NOT EXISTS decks (
+    id BIGSERIAL PRIMARY KEY,
+    module_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS cards (
+    id BIGSERIAL PRIMARY KEY,
+    deck_id BIGINT NOT NULL REFERENCES decks(id),
+    question TEXT NOT NULL,
+    correct_answer TEXT NOT NULL,
+    distractors TEXT[] NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS srs_cards (
+    id BIGSERIAL PRIMARY KEY,
+    card_id BIGINT NOT NULL REFERENCES cards(id),
+    learner_id TEXT NOT NULL,
+    due TIMESTAMPTZ NOT NULL,
+    stability DOUBLE PRECISION NOT NULL DEFAULT 0,
+    difficulty DOUBLE PRECISION NOT NULL DEFAULT 0,
+    reps INT NOT NULL DEFAULT 0,
+    lapses INT NOT NULL DEFAULT 0,
+    state INT NOT NULL DEFAULT 0,
+    last_review TIMESTAMPTZ
+);
