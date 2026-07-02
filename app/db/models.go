@@ -16,8 +16,9 @@ type Deck struct {
 	DeckType     string    `bun:"deck_type,notnull" json:"deck_type"`
 	LearnerID    string    `bun:"learner_id" json:"learner_id,omitempty"`
 	SourceDeckID *int64    `bun:"source_deck_id" json:"source_deck_id,omitempty"`
-	CreatedAt    time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
-	Cards        []*Card   `bun:"-" json:"cards,omitempty"`
+	CreatedAt    time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	DeletedAt    *time.Time `bun:"deleted_at" json:"deleted_at,omitempty"`
+	Cards        []*Card    `bun:"-" json:"cards,omitempty"`
 }
 
 type Card struct {
@@ -30,9 +31,10 @@ type Card struct {
 	QuestionJa           string    `bun:"question_ja,notnull" json:"question_ja"`
 	CorrectAnswerJa      string    `bun:"correct_answer_ja,notnull" json:"correct_answer_ja"`
 	DistractorsJa        []string  `bun:"distractors_ja,array,notnull" json:"distractors_ja"`
-	SourceConceptID      string    `bun:"source_concept_id,notnull" json:"source_concept_id,omitempty"`
-	SourceConceptTitle   string    `bun:"source_concept_title,notnull" json:"source_concept_title,omitempty"`
-	CreatedAt            time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	SourceConceptID      string     `bun:"source_concept_id,notnull" json:"source_concept_id,omitempty"`
+	SourceConceptTitle   string     `bun:"source_concept_title,notnull" json:"source_concept_title,omitempty"`
+	CreatedAt            time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	DeletedAt            *time.Time `bun:"deleted_at" json:"deleted_at,omitempty"`
 }
 
 type DeckCard struct {

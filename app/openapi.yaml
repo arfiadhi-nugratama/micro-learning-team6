@@ -10,11 +10,19 @@ servers:
   - url: http://localhost:8080
     description: Local development
 
+tags:
+  - name: System Decks
+    description: AI-generated read-only decks, one per course module
+  - name: Personal Decks
+    description: Learner-owned copies of system decks with FSRS progress
+  - name: Reviews
+    description: Spaced repetition study sessions and card rating
+
 paths:
   /modules/{moduleID}/deck:
     post:
       summary: Generate system deck for a module
-      description: Triggers LLM-based card generation from module content via the CMS gRPC service. Replaces any existing system deck for the module.
+      description: Triggers LLM-based card generation from module content via the CMS gRPC service.
       operationId: generateSystemDeck
       tags: [System Decks]
       parameters:
@@ -31,7 +39,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Deck'
+                $ref: '#/components/schemas/DeckWithCards'
         '500':
           $ref: '#/components/responses/InternalError'
         '502':
@@ -49,7 +57,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Deck'
+                $ref: '#/components/schemas/DeckWithCards'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
@@ -58,7 +66,7 @@ paths:
   /decks:
     get:
       summary: List all system decks
-      description: Returns all system decks with card counts.
+      description: Returns all non-deleted system decks with card counts (no card details).
       operationId: listSystemDecks
       tags: [System Decks]
       responses:
@@ -75,7 +83,8 @@ paths:
 
   /decks/{deckID}:
     delete:
-      summary: Delete a system deck
+      summary: Soft-delete a system deck
+      description: Sets deleted_at on the deck. User decks that copied it are unaffected.
       operationId: deleteSystemDeck
       tags: [System Decks]
       parameters:
@@ -83,8 +92,74 @@ paths:
       responses:
         '204':
           description: Deck deleted
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decks/{deckID}/cards:
+    post:
+      summary: Add a card to a system deck
+      operationId: addCardToSystemDeck
+      tags: [System Decks]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardInput'
+      responses:
+        '201':
+          description: Card created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decks/{deckID}/cards/{cardID}:
+    put:
+      summary: Edit a card in a system deck
+      description: In-place update. source_concept_id and source_concept_title updated only if non-empty.
+      operationId: updateSystemDeckCard
+      tags: [System Decks]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+        - $ref: '#/components/parameters/cardID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardInput'
+      responses:
+        '200':
+          description: Card updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Soft-delete a card from a system deck
+      description: Sets deleted_at on the card. User deck junction rows are unaffected — COW cards remain accessible until replaced by an edit.
+      operationId: deleteSystemDeckCard
+      tags: [System Decks]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+        - $ref: '#/components/parameters/cardID'
+      responses:
+        '204':
+          description: Card deleted
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
@@ -117,7 +192,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Deck'
+                $ref: '#/components/schemas/DeckWithCards'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -128,7 +203,7 @@ paths:
   /decks/{deckID}/review:
     get:
       summary: Get due cards for review
-      description: Returns cards that are due for review for the given learner, ordered by due date. Initializes SRS state for new cards.
+      description: Returns cards that are due for review for the given learner. Includes cards with no SRS record or whose due time has passed.
       operationId: getDueCards
       tags: [Reviews]
       parameters:
@@ -146,7 +221,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/ReviewCard'
+                  $ref: '#/components/schemas/Card'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -161,19 +236,20 @@ paths:
         - $ref: '#/components/parameters/learnerID'
       responses:
         '200':
-          description: Learner's personal decks
+          description: Learner's personal decks with cards
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Deck'
+                  $ref: '#/components/schemas/DeckWithCards'
         '500':
           $ref: '#/components/responses/InternalError'
 
   /user-decks/{deckID}:
     delete:
-      summary: Delete a personal deck
+      summary: Soft-delete a personal deck
+      description: Sets deleted_at on the deck and any cards it owns.
       operationId: deleteUserDeck
       tags: [Personal Decks]
       parameters:
@@ -181,8 +257,6 @@ paths:
       responses:
         '204':
           description: Deck deleted
-        '400':
-          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
@@ -200,7 +274,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CardInput'
+              $ref: '#/components/schemas/UserCardInput'
       responses:
         '201':
           description: Card added
@@ -208,8 +282,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Card'
-        '400':
-          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
@@ -231,7 +303,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CardInput'
+              $ref: '#/components/schemas/UserCardInput'
       responses:
         '200':
           description: Card updated
@@ -239,8 +311,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Card'
-        '400':
-          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
@@ -248,6 +318,7 @@ paths:
 
     delete:
       summary: Remove a card from a personal deck
+      description: If the card is owned by this user deck, soft-deletes it. If owned by a system deck, removes only the junction row.
       operationId: removeCardFromUserDeck
       tags: [Personal Decks]
       parameters:
@@ -256,8 +327,6 @@ paths:
       responses:
         '204':
           description: Card removed
-        '400':
-          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
@@ -354,10 +423,20 @@ components:
         created_at:
           type: string
           format: date-time
-        cards:
-          type: array
-          items:
-            $ref: '#/components/schemas/Card'
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    DeckWithCards:
+      allOf:
+        - $ref: '#/components/schemas/Deck'
+        - type: object
+          properties:
+            cards:
+              type: array
+              items:
+                $ref: '#/components/schemas/Card'
 
     DeckSummary:
       allOf:
@@ -385,7 +464,7 @@ components:
           type: array
           items:
             type: string
-          maxItems: 3
+          description: Truncated to 3 in API responses; DB stores all LLM-generated distractors.
         question_ja:
           type: string
         correct_answer_ja:
@@ -394,7 +473,6 @@ components:
           type: array
           items:
             type: string
-          maxItems: 3
         source_concept_id:
           type: string
         source_concept_title:
@@ -402,10 +480,39 @@ components:
         created_at:
           type: string
           format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
 
     CardInput:
       type: object
-      required: [question, correct_answer, distractors]
+      required: [question, correct_answer, distractors, question_ja, correct_answer_ja, distractors_ja]
+      properties:
+        question:
+          type: string
+        correct_answer:
+          type: string
+        distractors:
+          type: array
+          items:
+            type: string
+        question_ja:
+          type: string
+        correct_answer_ja:
+          type: string
+        distractors_ja:
+          type: array
+          items:
+            type: string
+        source_concept_id:
+          type: string
+        source_concept_title:
+          type: string
+
+    UserCardInput:
+      type: object
+      required: [question, correct_answer, distractors, question_ja, correct_answer_ja, distractors_ja]
       properties:
         question:
           type: string
@@ -460,14 +567,6 @@ components:
           type: string
           format: date-time
 
-    ReviewCard:
-      allOf:
-        - $ref: '#/components/schemas/Card'
-        - type: object
-          properties:
-            srs:
-              $ref: '#/components/schemas/SRSCard'
-
     Error:
       type: object
       properties:
@@ -502,11 +601,3 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-
-tags:
-  - name: System Decks
-    description: AI-generated read-only decks, one per course module
-  - name: Personal Decks
-    description: Learner-owned copies of system decks with FSRS progress
-  - name: Reviews
-    description: Spaced repetition study sessions and card rating

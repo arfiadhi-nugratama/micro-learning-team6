@@ -37,4 +37,5 @@ Module: `github.com/dojo-product/team6`, Go 1.24.
 - `deck_cards` junction table owns deck membership. `cards.deck_id` is the owning deck (system or user).
 - Copy-on-write: editing a user deck card clones the card row (owned by user deck) and swaps the `deck_cards` junction row. System card untouched.
 - FSRS ratings: 1=Again, 2=Hard, 3=Good, 4=Easy
-- Always keep README.md and CLAUDE.md up to date
+- Always keep README.md, CLAUDE.md, and openapi.yaml up to date
+- Soft delete: all delete endpoints set `deleted_at = now()` instead of hard deleting. All queries filter `deleted_at IS NULL`.
