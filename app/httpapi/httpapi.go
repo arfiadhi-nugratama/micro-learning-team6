@@ -133,6 +133,31 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return json.NewEncoder(w).Encode(rows)
 	})
 
+	router.GET("/decks/:deckID", func(w http.ResponseWriter, req bunrouter.Request) error {
+		deckID, err := parseDeckID(req)
+		if err != nil {
+			http.Error(w, "invalid deckID", http.StatusBadRequest)
+			return nil
+		}
+
+		var deck db.Deck
+		if err := database.NewSelect().Model(&deck).
+			Where("id = ? AND deck_type = ? AND deleted_at IS NULL", deckID, db.DeckTypeSystem).
+			Scan(req.Context()); err != nil {
+			http.Error(w, "deck not found", http.StatusNotFound)
+			return nil
+		}
+
+		if err := loadDeckCards(req.Context(), database, &deck); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return nil
+		}
+		truncateDeck(&deck)
+
+		w.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(w).Encode(deck)
+	})
+
 	router.PUT("/decks/:deckID/cards/:cardID", func(w http.ResponseWriter, req bunrouter.Request) error {
 		deckID, err := parseDeckID(req)
 		if err != nil {
