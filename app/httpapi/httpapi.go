@@ -25,7 +25,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			locale = "en"
 		}
 
-		content, err := grpcClient.GetModuleContent(req.Context(), moduleID, locale)
+		moduleTitle, content, err := grpcClient.GetModuleContent(req.Context(), moduleID, locale)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return nil
@@ -39,6 +39,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 		deck := &db.Deck{
 			ModuleID:  moduleID,
+			Title:     moduleTitle,
 			DeckType:  db.DeckTypeSystem,
 			CreatedAt: time.Now(),
 		}
@@ -365,6 +366,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 		userDeck := &db.Deck{
 			ModuleID:     src.ModuleID,
+			Title:        src.Title,
 			DeckType:     db.DeckTypeUser,
 			LearnerID:    body.LearnerID,
 			SourceDeckID: &sourceDeckID,

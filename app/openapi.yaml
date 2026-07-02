@@ -428,6 +428,9 @@ components:
           format: int64
         module_id:
           type: string
+        title:
+          type: string
+          description: Human-readable name, populated from the module title on generation and inherited on copy.
         deck_type:
           type: string
           enum: [system, user]

@@ -105,23 +105,25 @@ func (c *Client) fetchConceptBody(ctx context.Context, conceptID, locale string)
 	return result.Data.Concept.Body, nil
 }
 
-func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) (string, error) {
+func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) (title, content string, err error) {
 	resp, err := c.svc.GetModuleNavTree(ctx, &apiv1.GetModuleNavTreeRequest{
 		ModuleId: moduleID,
 		Locale:   locale,
 	})
 	if err != nil {
-		return "", fmt.Errorf("GetModuleNavTree: %w", err)
+		return "", "", fmt.Errorf("GetModuleNavTree: %w", err)
 	}
 
 	mod := resp.GetModule()
 	if mod == nil {
-		return "", fmt.Errorf("no module in response")
+		return "", "", fmt.Errorf("no module in response")
 	}
+
+	title = mod.GetTitle()
 
 	var sb strings.Builder
 	sb.WriteString("Module: ")
-	sb.WriteString(mod.GetTitle())
+	sb.WriteString(title)
 	sb.WriteString("\n\n")
 
 	for _, unit := range mod.GetUnits() {
@@ -158,5 +160,5 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) 
 		}
 	}
 
-	return sb.String(), nil
+	return title, sb.String(), nil
 }
