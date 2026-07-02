@@ -39,3 +39,4 @@ Module: `github.com/dojo-product/team6`, Go 1.24.
 - FSRS ratings: 1=Again, 2=Hard, 3=Good, 4=Easy
 - Always keep README.md, CLAUDE.md, and openapi.yaml up to date
 - Soft delete: all delete endpoints set `deleted_at = now()` instead of hard deleting. All queries filter `deleted_at IS NULL`.
+- Error handling: DO NOT swallow or warn on core logic errors (gRPC calls, Contentful fetches, LLM calls, DB operations). Always bubble up with `fmt.Errorf("context: %w", err)`. No `log.Warn`, no silent ignore, no fallback empty values. Empty content body (`body == ""`) from Contentful is also an error — return it as such. Let the middleware handle HTTP error responses.

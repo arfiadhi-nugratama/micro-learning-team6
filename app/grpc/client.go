@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"net/http"
 	"strings"
 
@@ -126,7 +127,10 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID string) (string,
 		ModuleId: moduleID,
 		Locale:   "ja-JP",
 	})
-	if err == nil && respJA.GetModule() != nil {
+	if err != nil {
+		return "", fmt.Errorf("GetModuleNavTree ja-JP: %w", err)
+	}
+	if respJA.GetModule() != nil {
 		for _, unit := range respJA.GetModule().GetUnits() {
 			for _, activity := range unit.GetActivities() {
 				for _, concept := range activity.GetConcepts() {
@@ -134,13 +138,16 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID string) (string,
 				}
 			}
 		}
-		// fetch JA contentful bodies if configured
 		if c.contentfulURL != "" && c.contentfulToken != "" {
 			for id := range jaConceptTitle {
 				body, ferr := c.fetchConceptBody(ctx, id, "ja-JP")
-				if ferr == nil && body != "" {
-					jaConceptBody[id] = body
+				if ferr != nil {
+					return "", fmt.Errorf("fetchConceptBody ja-JP %s: %w", id, ferr)
 				}
+				if body == "" {
+					return "", fmt.Errorf("fetchConceptBody ja-JP %s: empty body", id)
+				}
+				jaConceptBody[id] = body
 			}
 		}
 	}
@@ -177,11 +184,15 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID string) (string,
 				sb.WriteString("\n")
 				if c.contentfulURL != "" && c.contentfulToken != "" {
 					body, ferr := c.fetchConceptBody(ctx, id, "en-US")
-					if ferr == nil && body != "" {
-						sb.WriteString("Concept-Body-EN: ")
-						sb.WriteString(body)
-						sb.WriteString("\n")
+					if ferr != nil {
+						return "", fmt.Errorf("fetchConceptBody en-US %s: %w", id, ferr)
 					}
+					if body == "" {
+						return "", fmt.Errorf("fetchConceptBody en-US %s: empty body", id)
+					}
+					sb.WriteString("Concept-Body-EN: ")
+					sb.WriteString(body)
+					sb.WriteString("\n")
 				}
 
 				// JA block
