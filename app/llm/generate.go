@@ -30,7 +30,7 @@ const formatInstruction = `Return ONLY a JSON array with no markdown. Each item 
   "correct_answer_ja": "correct answer in Japanese",
   "distractors_ja": ["same distractors in Japanese, matching order"],
   "source_concept_id": "the Concept-ID value from the source concept block this card is based on",
-  "source_concept_title": "the Concept-Title value from the source concept block this card is based on"
+  "source_concept_title": "the Concept-Title-EN value from the source concept block this card is based on"
 }
 Each card must have at least 7 distractors in both languages. Generate as many cards as the content warrants. Each question must be unique — do not generate duplicate or near-duplicate questions across the entire card set.`
 

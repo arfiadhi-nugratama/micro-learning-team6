@@ -105,28 +105,53 @@ func (c *Client) fetchConceptBody(ctx context.Context, conceptID, locale string)
 	return result.Data.Concept.Body, nil
 }
 
-func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) (title, content string, err error) {
-	resp, err := c.svc.GetModuleNavTree(ctx, &apiv1.GetModuleNavTreeRequest{
+func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) (string, error) {
+	// fetch EN tree always; fetch JA tree in parallel when locale is not already "ja"
+	respEN, err := c.svc.GetModuleNavTree(ctx, &apiv1.GetModuleNavTreeRequest{
 		ModuleId: moduleID,
-		Locale:   locale,
+		Locale:   "en",
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("GetModuleNavTree: %w", err)
+		return "", fmt.Errorf("GetModuleNavTree en: %w", err)
+	}
+	modEN := respEN.GetModule()
+	if modEN == nil {
+		return "", fmt.Errorf("no module in response")
 	}
 
-	mod := resp.GetModule()
-	if mod == nil {
-		return "", "", fmt.Errorf("no module in response")
-	}
+	// build a sysId→ja concept title/body lookup
+	jaConceptTitle := map[string]string{}
+	jaConceptBody := map[string]string{}
 
-	title = mod.GetTitle()
+	respJA, err := c.svc.GetModuleNavTree(ctx, &apiv1.GetModuleNavTreeRequest{
+		ModuleId: moduleID,
+		Locale:   "ja",
+	})
+	if err == nil && respJA.GetModule() != nil {
+		for _, unit := range respJA.GetModule().GetUnits() {
+			for _, activity := range unit.GetActivities() {
+				for _, concept := range activity.GetConcepts() {
+					jaConceptTitle[concept.GetSysId()] = concept.GetTitle()
+				}
+			}
+		}
+		// fetch JA contentful bodies if configured
+		if c.contentfulURL != "" && c.contentfulToken != "" {
+			for id := range jaConceptTitle {
+				body, ferr := c.fetchConceptBody(ctx, id, "ja")
+				if ferr == nil && body != "" {
+					jaConceptBody[id] = body
+				}
+			}
+		}
+	}
 
 	var sb strings.Builder
 	sb.WriteString("Module: ")
-	sb.WriteString(title)
+	sb.WriteString(modEN.GetTitle())
 	sb.WriteString("\n\n")
 
-	for _, unit := range mod.GetUnits() {
+	for _, unit := range modEN.GetUnits() {
 		sb.WriteString("Unit: ")
 		sb.WriteString(unit.GetTitle())
 		sb.WriteString("\n\n")
@@ -141,24 +166,41 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID, locale string) 
 			sb.WriteString("\n\n")
 
 			for _, concept := range activity.GetConcepts() {
+				id := concept.GetSysId()
+
 				sb.WriteString("Concept-ID: ")
-				sb.WriteString(concept.GetSysId())
-				sb.WriteString("\n")
-				sb.WriteString("Concept-Title: ")
-				sb.WriteString(concept.GetTitle())
+				sb.WriteString(id)
 				sb.WriteString("\n")
 
+				// EN block
+				sb.WriteString("Concept-Title-EN: ")
+				sb.WriteString(concept.GetTitle())
+				sb.WriteString("\n")
 				if c.contentfulURL != "" && c.contentfulToken != "" {
-					body, err := c.fetchConceptBody(ctx, concept.GetSysId(), locale)
-					if err == nil && body != "" {
+					body, ferr := c.fetchConceptBody(ctx, id, "en")
+					if ferr == nil && body != "" {
+						sb.WriteString("Concept-Body-EN: ")
 						sb.WriteString(body)
 						sb.WriteString("\n")
 					}
 				}
+
+				// JA block
+				if jaTitle, ok := jaConceptTitle[id]; ok {
+					sb.WriteString("Concept-Title-JA: ")
+					sb.WriteString(jaTitle)
+					sb.WriteString("\n")
+				}
+				if jaBody, ok := jaConceptBody[id]; ok {
+					sb.WriteString("Concept-Body-JA: ")
+					sb.WriteString(jaBody)
+					sb.WriteString("\n")
+				}
+
 				sb.WriteString("\n")
 			}
 		}
 	}
 
-	return title, sb.String(), nil
+	return sb.String(), nil
 }

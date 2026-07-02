@@ -41,7 +41,13 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			locale = "en"
 		}
 
-		moduleTitle, content, err := grpcClient.GetModuleContent(req.Context(), moduleID, locale)
+		var body struct {
+			Title string `json:"title"`
+		}
+		// body is optional — ignore decode error (empty body = empty title)
+		json.NewDecoder(req.Body).Decode(&body) //nolint
+
+		content, err := grpcClient.GetModuleContent(req.Context(), moduleID, locale)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return nil
@@ -54,7 +60,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 		deck := &db.Deck{
 			ModuleID:  moduleID,
-			Title:     moduleTitle,
+			Title:     body.Title,
 			DeckType:  db.DeckTypeSystem,
 			CreatedAt: time.Now(),
 		}

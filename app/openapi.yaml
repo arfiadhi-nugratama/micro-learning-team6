@@ -33,6 +33,15 @@ paths:
           schema:
             type: string
             default: en
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: Human-readable deck title
       responses:
         '200':
           description: Deck generated successfully
