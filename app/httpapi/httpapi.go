@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"log/slog"
 	"math/rand/v2"
@@ -163,8 +164,13 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 		dbCards := make([]*db.Card, 0, len(cards))
 		for _, c := range cards {
+			cardType := c.CardType
+			if cardType == "" {
+				cardType = db.CardTypeMultipleChoice
+			}
 			dbCards = append(dbCards, &db.Card{
 				DeckID:             deck.ID,
+				CardType:           cardType,
 				Question:           c.Question,
 				CorrectAnswer:      c.CorrectAnswer,
 				Distractors:        c.Distractors,
@@ -286,6 +292,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		var body struct {
+			CardType           string   `json:"card_type"`
 			Question           string   `json:"question"`
 			CorrectAnswer      string   `json:"correct_answer"`
 			Distractors        []string `json:"distractors"`
@@ -309,6 +316,9 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return nil
 		}
 
+		if body.CardType != "" {
+			card.CardType = body.CardType
+		}
 		card.Question = body.Question
 		card.CorrectAnswer = body.CorrectAnswer
 		card.Distractors = body.Distractors
@@ -346,6 +356,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		var body struct {
+			CardType           string   `json:"card_type"`
 			Question           string   `json:"question"`
 			CorrectAnswer      string   `json:"correct_answer"`
 			Distractors        []string `json:"distractors"`
@@ -359,9 +370,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return nil
 		}
+		cardType := body.CardType
+		if cardType == "" {
+			cardType = db.CardTypeMultipleChoice
+		}
 
 		card := &db.Card{
 			DeckID:             deckID,
+			CardType:           cardType,
 			Question:           body.Question,
 			CorrectAnswer:      body.CorrectAnswer,
 			Distractors:        body.Distractors,
@@ -537,6 +553,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		var body struct {
+			CardType        string   `json:"card_type"`
 			Question        string   `json:"question"`
 			CorrectAnswer   string   `json:"correct_answer"`
 			Distractors     []string `json:"distractors"`
@@ -559,6 +576,9 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		var newCardID int64
 		if existing.DeckID == deckID {
 			// already owned by this user deck — update in place
+			if body.CardType != "" {
+				existing.CardType = body.CardType
+			}
 			existing.Question = body.Question
 			existing.CorrectAnswer = body.CorrectAnswer
 			existing.Distractors = body.Distractors
@@ -571,8 +591,13 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			newCardID = existing.ID
 		} else {
 			// COW: clone card owned by user deck
+			cardType := body.CardType
+			if cardType == "" {
+				cardType = existing.CardType
+			}
 			newCard := &db.Card{
 				DeckID:          deckID,
+				CardType:        cardType,
 				Question:        body.Question,
 				CorrectAnswer:   body.CorrectAnswer,
 				Distractors:     body.Distractors,
@@ -618,6 +643,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		var body struct {
+			CardType        string   `json:"card_type"`
 			Question        string   `json:"question"`
 			CorrectAnswer   string   `json:"correct_answer"`
 			Distractors     []string `json:"distractors"`
@@ -629,9 +655,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return nil
 		}
+		cardType := body.CardType
+		if cardType == "" {
+			cardType = db.CardTypeMultipleChoice
+		}
 
 		card := &db.Card{
 			DeckID:          deckID,
+			CardType:        cardType,
 			Question:        body.Question,
 			CorrectAnswer:   body.CorrectAnswer,
 			Distractors:     body.Distractors,
@@ -880,6 +911,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		var body struct {
 			LearnerID string `json:"learner_id"`
 			Rating    int    `json:"rating"`
+			Answer    string `json:"answer"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
@@ -890,6 +922,32 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return nil
 		}
 
+		var card db.Card
+		if err := database.NewSelect().Model(&card).Where("id = ? AND deleted_at IS NULL", cardID).Scan(req.Context()); err != nil {
+			http.Error(w, "card not found", http.StatusNotFound)
+			return nil
+		}
+
+		rating := body.Rating
+		var judgeResult *llm.JudgeResult
+
+		if card.CardType == db.CardTypeOpenText {
+			if body.Answer == "" {
+				http.Error(w, "answer required for open_text cards", http.StatusBadRequest)
+				return nil
+			}
+			result, err := llm.JudgeOpenText(req.Context(), card.Question, card.CorrectAnswer, card.QuestionJa, card.CorrectAnswerJa, body.Answer)
+			if err != nil {
+				return fmt.Errorf("judge open text: %w", err)
+			}
+			judgeResult = &result
+			if result.Correct {
+				rating = 3 // Good
+			} else {
+				rating = 1 // Again
+			}
+		}
+
 		var srsCard db.SRSCard
 		err = database.NewSelect().Model(&srsCard).
 			Where("card_id = ? AND learner_id = ?", cardID, body.LearnerID).
@@ -898,7 +956,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			srsCard = *srs.InitCard(cardID, body.LearnerID)
 		}
 
-		if err := srs.ReviewCard(&srsCard, body.Rating); err != nil {
+		if err := srs.ReviewCard(&srsCard, rating); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return nil
 		}
@@ -914,7 +972,10 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		return json.NewEncoder(w).Encode(srsCard)
+		return json.NewEncoder(w).Encode(struct {
+			SRSCard db.SRSCard       `json:"srs_card"`
+			Judge   *llm.JudgeResult `json:"judge,omitempty"`
+		}{SRSCard: srsCard, Judge: judgeResult})
 	})
 }
 

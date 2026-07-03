@@ -14,6 +14,7 @@ import (
 )
 
 type CardData struct {
+	CardType           string   `json:"card_type"`
 	Question           string   `json:"question"`
 	CorrectAnswer      string   `json:"correct_answer"`
 	Distractors        []string `json:"distractors"`
@@ -26,25 +27,46 @@ type CardData struct {
 
 const deduplicatePrompt = `You are given a JSON object with a "cards" array, each item having an "i" (index) and "q" (question). Identify duplicate or near-duplicate questions (same concept tested in essentially the same way). Keep the best version when duplicates exist. Return a JSON object with a single "keep" key containing an array of the indices to keep.`
 
-const formatInstruction = `
-Return a JSON object with a single "cards" key containing an array. Each item in the array must have ALL of these fields:
+const schemaPrompt = `
+Return a JSON object with a single "cards" key containing an array. Each item must have ALL of these fields:
 {
+  "card_type": "multiple_choice" | "self_assess" | "open_text",
   "question": "question in English",
   "correct_answer": "correct answer in English",
-  "distractors": ["exactly 10 wrong answers in English"],
+  "distractors": [
+    "7–10 wrong answers in English for multiple_choice cards",
+    "empty array [] for self_assess and open_text"
+  ],
   "question_ja": "question in Japanese",
   "correct_answer_ja": "correct answer in Japanese",
-  "distractors_ja": ["exactly 10 wrong answers in Japanese, matching order"],
+  "distractors_ja": [
+    "wrong answers in Japanese matching the same order and count as distractors",
+    "empty array [] for self_assess and open_text"
+  ],
   "source_concept_id": "Concept-ID from the source block",
   "source_concept_title": "Concept-Title-EN from the source block"
 }
+
+Card types:
+- "multiple_choice": provide 7–10 plausible but clearly wrong distractors. Distractors must be mutually exclusive, similar in length/format/style to the correct answer, and not overlap in meaning with each other or the answer.
+- "self_assess": learner reflects then self-rates. Set distractors and distractors_ja to [].
+- "open_text": learner types a short answer, graded by AI. Set distractors and distractors_ja to [].
 `
 
 const systemPrompt = `
-You are an expert instructional designer creating multiple-choice flashcards from provided learning content.
+You are an expert instructional designer creating flashcards from provided learning content.
 
 ## Task
-Generate high-quality MCQ flashcards based ONLY on the provided content. Do not add outside information. If content is unclear or missing context, make the best possible cards from what is provided.
+Generate high-quality flashcards based ONLY on the provided content. Do not add outside information. If content is unclear or missing context, make the best possible cards from what is provided.
+
+## Card Types
+Choose the best card type for each card:
+
+- "multiple_choice": Best for factual recall, definitions, and selecting the correct option from plausible alternatives.
+- "self_assess": Best for open-ended concepts, explanations, processes, or anything where the learner benefits from reflecting before seeing the answer.
+- "open_text": Best for fill-in-the-blank, short factual answers (names, numbers, terms) where the exact answer can be verified.
+
+Aim for a natural mix: roughly 40% multiple_choice, 30% self_assess, 30% open_text — but let the content guide you.
 
 ## Card Rules
 - Each card tests ONE clear idea.
@@ -55,13 +77,6 @@ Generate high-quality MCQ flashcards based ONLY on the provided content. Do not 
 - Every question must be unique — no duplicate or near-duplicate questions across the entire set.
 - Generate 1–3 cards per concept, as many as the content genuinely warrants.
 - Do not ask questions about the course itself, the platform, or the user experience. Focus only on the learning content.
-
-## Distractor Rules
-- Each card must have EXACTLY 10 distractors (10 incorrect + 1 correct = 11 total options).
-- Distractors must be plausible but clearly incorrect.
-- Distractors must be similar in length, format, and style to the correct answer.
-- Distractors must be mutually exclusive — no distractor may also be a correct answer.
-- Distractors must not overlap in meaning with each other or the correct answer.
 
 ## Language & Tone
 - Provide every field in both English and Japanese.
@@ -74,7 +89,7 @@ Generate high-quality MCQ flashcards based ONLY on the provided content. Do not 
 - "source_concept_title" must be the Concept-Title-EN value from that same block.
 `
 
-const Prompt = systemPrompt + "\n" + formatInstruction
+const Prompt = systemPrompt
 
 func newOpenAIClient() openai.Client {
 	opts := []option.RequestOption{option.WithAPIKey(os.Getenv("OPENAI_API_KEY"))}
@@ -87,7 +102,7 @@ func newOpenAIClient() openai.Client {
 func Generate(ctx context.Context, systemPrompt, content string) ([]CardData, error) {
 	client := newOpenAIClient()
 
-	fullPrompt := systemPrompt + "\n" + formatInstruction
+	fullPrompt := systemPrompt + "\n" + schemaPrompt
 
 	resp, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model: "gpt-4.1-mini",
@@ -115,6 +130,52 @@ func Generate(ctx context.Context, systemPrompt, content string) ([]CardData, er
 	}
 
 	return envelope.Cards, nil
+}
+
+type JudgeResult struct {
+	Correct  bool   `json:"correct"`
+	Feedback string `json:"feedback"`
+}
+
+const judgePrompt = `You are grading a learner's open-text answer to a flashcard question. Given the question, the correct answer, and the learner's answer, decide if the learner's response is correct.
+
+Be lenient with minor spelling mistakes, different phrasing, and partial answers that demonstrate clear understanding. Be strict about factually wrong content.
+
+Return a JSON object with:
+{
+  "correct": true or false,
+  "feedback": "one short sentence explaining why it's correct or what was missing/wrong"
+}
+`
+
+func JudgeOpenText(ctx context.Context, question, correctAnswer, questionJa, correctAnswerJa, learnerAnswer string) (JudgeResult, error) {
+	client := newOpenAIClient()
+
+	input := fmt.Sprintf("Question (EN): %s\nQuestion (JA): %s\nCorrect answer (EN): %s\nCorrect answer (JA): %s\nLearner's answer: %s",
+		question, questionJa, correctAnswer, correctAnswerJa, learnerAnswer)
+
+	resp, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Model: "gpt-4.1-mini",
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(judgePrompt),
+			openai.UserMessage(input),
+		},
+		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONObject: &shared.ResponseFormatJSONObjectParam{Type: "json_object"},
+		},
+	})
+	if err != nil {
+		return JudgeResult{}, fmt.Errorf("openai judge request: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return JudgeResult{}, fmt.Errorf("no choices in judge response")
+	}
+
+	var result JudgeResult
+	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &result); err != nil {
+		return JudgeResult{}, fmt.Errorf("parse judge response: %w", err)
+	}
+	return result, nil
 }
 
 // Deduplicate calls the LLM with only the questions (+ index) and filters locally.

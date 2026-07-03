@@ -9,6 +9,10 @@ import (
 const DeckTypeSystem = "system"
 const DeckTypeUser = "user"
 
+const CardTypeMultipleChoice = "multiple_choice"
+const CardTypeSelfAssess = "self_assess"
+const CardTypeOpenText = "open_text"
+
 type Deck struct {
 	bun.BaseModel `bun:"table:decks"`
 	ID           int64     `bun:"id,pk,autoincrement" json:"id"`
@@ -27,6 +31,7 @@ type Card struct {
 	bun.BaseModel        `bun:"table:cards"`
 	ID                   int64      `bun:"id,pk,autoincrement" json:"id"`
 	DeckID               int64      `bun:"deck_id,notnull" json:"deck_id"`
+	CardType             string     `bun:"card_type,notnull,default:'multiple_choice'" json:"card_type"`
 	Question             string     `bun:"question,notnull" json:"question"`
 	CorrectAnswer        string     `bun:"correct_answer,notnull" json:"correct_answer"`
 	Distractors          []string   `bun:"distractors,array,notnull" json:"distractors"`

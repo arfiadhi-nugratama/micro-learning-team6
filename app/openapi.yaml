@@ -427,7 +427,10 @@ paths:
       summary: Submit a review rating for a card
       description: |
         Records a review result and updates the FSRS schedule for the card.
-        Rating scale: 1=Again, 2=Hard, 3=Good, 4=Easy.
+
+        Behaviour by card_type:
+        - **multiple_choice** / **self_assess**: send `rating` (1=Again, 2=Hard, 3=Good, 4=Easy). No `answer` needed.
+        - **open_text**: send `answer` (the learner's typed response). The server uses an LLM judge to grade it and derives the rating automatically (correct → Good/3, wrong → Again/1). Response includes a `judge` object with `correct` and `feedback`.
       operationId: submitCardReview
       tags: [Reviews]
       parameters:
@@ -438,7 +441,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [learner_id, rating]
+              required: [learner_id]
               properties:
                 learner_id:
                   type: string
@@ -446,14 +449,28 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 4
-                  description: "FSRS rating: 1=Again, 2=Hard, 3=Good, 4=Easy"
+                  description: "FSRS rating: 1=Again, 2=Hard, 3=Good, 4=Easy. Required for multiple_choice and self_assess."
+                answer:
+                  type: string
+                  description: "Learner's typed answer. Required for open_text cards."
       responses:
         '200':
           description: Review recorded; updated SRS state returned
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SRSCard'
+                type: object
+                properties:
+                  srs_card:
+                    $ref: '#/components/schemas/SRSCard'
+                  judge:
+                    type: object
+                    description: Present only for open_text cards
+                    properties:
+                      correct:
+                        type: boolean
+                      feedback:
+                        type: string
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -549,6 +566,13 @@ components:
         deck_id:
           type: integer
           format: int64
+        card_type:
+          type: string
+          enum: [multiple_choice, self_assess, open_text]
+          description: |
+            multiple_choice — options/options_ja contain shuffled answer choices.
+            self_assess — show question and correct_answer; user self-rates with rating 1–4.
+            open_text — user types an answer; submit via answer field in review request.
         question:
           type: string
         correct_answer:
