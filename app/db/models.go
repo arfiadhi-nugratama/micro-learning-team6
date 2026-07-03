@@ -9,15 +9,24 @@ import (
 const DeckTypeSystem = "system"
 const DeckTypeUser = "user"
 
+const DeckVisibilityPrivate = "private"
+const DeckVisibilityLink = "link"
+
+const CardTypeMultipleChoice = "multiple_choice"
+const CardTypeSelfAssess = "self_assess"
+const CardTypeOpenText = "open_text"
+
 type Deck struct {
 	bun.BaseModel `bun:"table:decks"`
-	ID           int64     `bun:"id,pk,autoincrement" json:"id"`
-	ModuleID     string    `bun:"module_id,notnull" json:"module_id"`
-	Title        string    `bun:"title,notnull" json:"title"`
-	TitleJa      string    `bun:"title_ja,notnull" json:"title_ja"`
-	DeckType     string    `bun:"deck_type,notnull" json:"deck_type"`
-	LearnerID    string    `bun:"learner_id" json:"learner_id,omitempty"`
-	SourceDeckID *int64    `bun:"source_deck_id" json:"source_deck_id,omitempty"`
+	ID           int64      `bun:"id,pk,autoincrement" json:"id"`
+	ModuleID     string     `bun:"module_id,notnull" json:"module_id"`
+	Title        string     `bun:"title,notnull" json:"title"`
+	TitleJa      string     `bun:"title_ja,notnull" json:"title_ja"`
+	DeckType     string     `bun:"deck_type,notnull" json:"deck_type"`
+	LearnerID    string     `bun:"learner_id" json:"learner_id,omitempty"`
+	SourceDeckID *int64     `bun:"source_deck_id" json:"source_deck_id,omitempty"`
+	Visibility   string     `bun:"visibility,notnull,default:'private'" json:"visibility"`
+	ShareToken   *string    `bun:"share_token" json:"share_token,omitempty"`
 	CreatedAt    time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	DeletedAt    *time.Time `bun:"deleted_at" json:"deleted_at,omitempty"`
 	Cards        []*Card    `bun:"-" json:"cards,omitempty"`
@@ -25,14 +34,17 @@ type Deck struct {
 
 type Card struct {
 	bun.BaseModel        `bun:"table:cards"`
-	ID                   int64     `bun:"id,pk,autoincrement" json:"id"`
-	DeckID               int64     `bun:"deck_id,notnull" json:"deck_id"`
-	Question             string    `bun:"question,notnull" json:"question"`
-	CorrectAnswer        string    `bun:"correct_answer,notnull" json:"correct_answer"`
-	Distractors          []string  `bun:"distractors,array,notnull" json:"distractors"`
-	QuestionJa           string    `bun:"question_ja,notnull" json:"question_ja"`
-	CorrectAnswerJa      string    `bun:"correct_answer_ja,notnull" json:"correct_answer_ja"`
-	DistractorsJa        []string  `bun:"distractors_ja,array,notnull" json:"distractors_ja"`
+	ID                   int64      `bun:"id,pk,autoincrement" json:"id"`
+	DeckID               int64      `bun:"deck_id,notnull" json:"deck_id"`
+	CardType             string     `bun:"card_type,notnull,default:'multiple_choice'" json:"card_type"`
+	Question             string     `bun:"question,notnull" json:"question"`
+	CorrectAnswer        string     `bun:"correct_answer,notnull" json:"correct_answer"`
+	Distractors          []string   `bun:"distractors,array,notnull" json:"distractors"`
+	Options              []string   `bun:"-" json:"options,omitempty"`
+	QuestionJa           string     `bun:"question_ja,notnull" json:"question_ja"`
+	CorrectAnswerJa      string     `bun:"correct_answer_ja,notnull" json:"correct_answer_ja"`
+	DistractorsJa        []string   `bun:"distractors_ja,array,notnull" json:"distractors_ja"`
+	OptionsJa            []string   `bun:"-" json:"options_ja,omitempty"`
 	SourceConceptID      string     `bun:"source_concept_id,notnull" json:"source_concept_id,omitempty"`
 	SourceConceptTitle   string     `bun:"source_concept_title,notnull" json:"source_concept_title,omitempty"`
 	CreatedAt            time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`

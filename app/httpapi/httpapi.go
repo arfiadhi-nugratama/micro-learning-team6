@@ -2,9 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"log/slog"
+	mathrand "math/rand/v2"
 	"net/http"
 	"strconv"
 	"sync"
@@ -162,8 +166,13 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 		dbCards := make([]*db.Card, 0, len(cards))
 		for _, c := range cards {
+			cardType := c.CardType
+			if cardType == "" {
+				cardType = db.CardTypeMultipleChoice
+			}
 			dbCards = append(dbCards, &db.Card{
 				DeckID:             deck.ID,
+				CardType:           cardType,
 				Question:           c.Question,
 				CorrectAnswer:      c.CorrectAnswer,
 				Distractors:        c.Distractors,
@@ -285,6 +294,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		var body struct {
+			CardType           string   `json:"card_type"`
 			Question           string   `json:"question"`
 			CorrectAnswer      string   `json:"correct_answer"`
 			Distractors        []string `json:"distractors"`
@@ -308,6 +318,9 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return nil
 		}
 
+		if body.CardType != "" {
+			card.CardType = body.CardType
+		}
 		card.Question = body.Question
 		card.CorrectAnswer = body.CorrectAnswer
 		card.Distractors = body.Distractors
@@ -325,8 +338,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return err
 		}
 
-		card.Distractors = truncate(card.Distractors, 3)
-		card.DistractorsJa = truncate(card.DistractorsJa, 3)
+		prepareCard(&card)
 
 		w.Header().Set("Content-Type", "application/json")
 		return json.NewEncoder(w).Encode(card)
@@ -346,6 +358,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		var body struct {
+			CardType           string   `json:"card_type"`
 			Question           string   `json:"question"`
 			CorrectAnswer      string   `json:"correct_answer"`
 			Distractors        []string `json:"distractors"`
@@ -359,9 +372,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return nil
 		}
+		cardType := body.CardType
+		if cardType == "" {
+			cardType = db.CardTypeMultipleChoice
+		}
 
 		card := &db.Card{
 			DeckID:             deckID,
+			CardType:           cardType,
 			Question:           body.Question,
 			CorrectAnswer:      body.CorrectAnswer,
 			Distractors:        body.Distractors,
@@ -379,8 +397,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return err
 		}
 
-		card.Distractors = truncate(card.Distractors, 3)
-		card.DistractorsJa = truncate(card.DistractorsJa, 3)
+		prepareCard(card)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -538,6 +555,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		var body struct {
+			CardType        string   `json:"card_type"`
 			Question        string   `json:"question"`
 			CorrectAnswer   string   `json:"correct_answer"`
 			Distractors     []string `json:"distractors"`
@@ -560,6 +578,9 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		var newCardID int64
 		if existing.DeckID == deckID {
 			// already owned by this user deck — update in place
+			if body.CardType != "" {
+				existing.CardType = body.CardType
+			}
 			existing.Question = body.Question
 			existing.CorrectAnswer = body.CorrectAnswer
 			existing.Distractors = body.Distractors
@@ -572,8 +593,13 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			newCardID = existing.ID
 		} else {
 			// COW: clone card owned by user deck
+			cardType := body.CardType
+			if cardType == "" {
+				cardType = existing.CardType
+			}
 			newCard := &db.Card{
 				DeckID:          deckID,
+				CardType:        cardType,
 				Question:        body.Question,
 				CorrectAnswer:   body.CorrectAnswer,
 				Distractors:     body.Distractors,
@@ -599,8 +625,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		if err := database.NewSelect().Model(&result).Where("id = ?", newCardID).Scan(req.Context()); err != nil {
 			return err
 		}
-		result.Distractors = truncate(result.Distractors, 3)
-		result.DistractorsJa = truncate(result.DistractorsJa, 3)
+		prepareCard(&result)
 
 		w.Header().Set("Content-Type", "application/json")
 		return json.NewEncoder(w).Encode(result)
@@ -620,6 +645,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		var body struct {
+			CardType        string   `json:"card_type"`
 			Question        string   `json:"question"`
 			CorrectAnswer   string   `json:"correct_answer"`
 			Distractors     []string `json:"distractors"`
@@ -631,9 +657,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return nil
 		}
+		cardType := body.CardType
+		if cardType == "" {
+			cardType = db.CardTypeMultipleChoice
+		}
 
 		card := &db.Card{
 			DeckID:          deckID,
+			CardType:        cardType,
 			Question:        body.Question,
 			CorrectAnswer:   body.CorrectAnswer,
 			Distractors:     body.Distractors,
@@ -649,8 +680,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return err
 		}
 
-		card.Distractors = truncate(card.Distractors, 3)
-		card.DistractorsJa = truncate(card.DistractorsJa, 3)
+		prepareCard(card)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -731,6 +761,158 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return nil
 	})
 
+	// --- learner deck create ---
+
+	g.POST("/user-decks", func(w http.ResponseWriter, req bunrouter.Request) error {
+		var body struct {
+			LearnerID string `json:"learner_id"`
+			Title     string `json:"title"`
+			TitleJa   string `json:"title_ja"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.LearnerID == "" {
+			http.Error(w, "learner_id required", http.StatusBadRequest)
+			return nil
+		}
+
+		deck := &db.Deck{
+			ModuleID:   "",
+			Title:      body.Title,
+			TitleJa:    body.TitleJa,
+			DeckType:   db.DeckTypeUser,
+			LearnerID:  body.LearnerID,
+			Visibility: db.DeckVisibilityPrivate,
+			CreatedAt:  time.Now(),
+		}
+		if _, err := database.NewInsert().Model(deck).Returning("*").Exec(req.Context()); err != nil {
+			return err
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		return json.NewEncoder(w).Encode(deck)
+	})
+
+	// --- sharing ---
+
+	g.POST("/user-decks/:deckID/share", func(w http.ResponseWriter, req bunrouter.Request) error {
+		deckID, err := parseDeckID(req)
+		if err != nil {
+			http.Error(w, "invalid deckID", http.StatusBadRequest)
+			return nil
+		}
+
+		var body struct {
+			LearnerID  string `json:"learner_id"`
+			Visibility string `json:"visibility"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.LearnerID == "" {
+			http.Error(w, "learner_id required", http.StatusBadRequest)
+			return nil
+		}
+		if body.Visibility != db.DeckVisibilityPrivate && body.Visibility != db.DeckVisibilityLink {
+			http.Error(w, "visibility must be 'private' or 'link'", http.StatusBadRequest)
+			return nil
+		}
+
+		var deck db.Deck
+		if err := database.NewSelect().Model(&deck).
+			Where("id = ? AND learner_id = ? AND deck_type = ? AND deleted_at IS NULL", deckID, body.LearnerID, db.DeckTypeUser).
+			Scan(req.Context()); err != nil {
+			http.Error(w, "deck not found", http.StatusNotFound)
+			return nil
+		}
+
+		if body.Visibility == db.DeckVisibilityLink && deck.ShareToken == nil {
+			token, err := generateShareToken()
+			if err != nil {
+				return fmt.Errorf("generate share token: %w", err)
+			}
+			deck.ShareToken = &token
+		}
+		deck.Visibility = body.Visibility
+
+		if _, err := database.NewUpdate().Model(&deck).
+			Column("visibility", "share_token").
+			WherePK().
+			Exec(req.Context()); err != nil {
+			return err
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(w).Encode(deck)
+	})
+
+	g.GET("/shared/:shareToken", func(w http.ResponseWriter, req bunrouter.Request) error {
+		token := req.Param("shareToken")
+
+		var deck db.Deck
+		if err := database.NewSelect().Model(&deck).
+			Where("share_token = ? AND visibility = ? AND deleted_at IS NULL", token, db.DeckVisibilityLink).
+			Scan(req.Context()); err != nil {
+			http.Error(w, "deck not found", http.StatusNotFound)
+			return nil
+		}
+
+		if err := loadDeckCards(req.Context(), database, &deck); err != nil {
+			return err
+		}
+		truncateDeck(&deck)
+
+		w.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(w).Encode(deck)
+	})
+
+	g.POST("/shared/:shareToken/copy", func(w http.ResponseWriter, req bunrouter.Request) error {
+		token := req.Param("shareToken")
+
+		var body struct {
+			LearnerID string `json:"learner_id"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.LearnerID == "" {
+			http.Error(w, "learner_id required", http.StatusBadRequest)
+			return nil
+		}
+
+		var src db.Deck
+		if err := database.NewSelect().Model(&src).
+			Where("share_token = ? AND visibility = ? AND deleted_at IS NULL", token, db.DeckVisibilityLink).
+			Scan(req.Context()); err != nil {
+			http.Error(w, "deck not found", http.StatusNotFound)
+			return nil
+		}
+
+		sourceDeckID := src.ID
+		copied := &db.Deck{
+			ModuleID:     src.ModuleID,
+			Title:        src.Title,
+			TitleJa:      src.TitleJa,
+			DeckType:     db.DeckTypeUser,
+			LearnerID:    body.LearnerID,
+			SourceDeckID: &sourceDeckID,
+			Visibility:   db.DeckVisibilityPrivate,
+			CreatedAt:    time.Now(),
+		}
+		if _, err := database.NewInsert().Model(copied).Returning("*").Exec(req.Context()); err != nil {
+			return err
+		}
+
+		if _, err := database.NewRaw(`
+			INSERT INTO deck_cards (deck_id, card_id)
+			SELECT ?, card_id FROM deck_cards WHERE deck_id = ?
+		`, copied.ID, sourceDeckID).Exec(req.Context()); err != nil {
+			return err
+		}
+
+		if err := loadDeckCards(req.Context(), database, copied); err != nil {
+			return err
+		}
+		truncateDeck(copied)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		return json.NewEncoder(w).Encode(copied)
+	})
+
 	// --- review endpoints ---
 
 	g.GET("/decks/:deckID/review", func(w http.ResponseWriter, req bunrouter.Request) error {
@@ -770,14 +952,12 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 				Where("card_id = ? AND learner_id = ?", card.ID, learnerID).
 				Scan(req.Context())
 			if err != nil {
-				card.Distractors = truncate(card.Distractors, 3)
-				card.DistractorsJa = truncate(card.DistractorsJa, 3)
+				prepareCard(card)
 				dueCards = append(dueCards, card)
 				continue
 			}
 			if !srsCard.Due.After(now) {
-				card.Distractors = truncate(card.Distractors, 3)
-				card.DistractorsJa = truncate(card.DistractorsJa, 3)
+				prepareCard(card)
 				dueCards = append(dueCards, card)
 			}
 		}
@@ -885,6 +1065,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		var body struct {
 			LearnerID string `json:"learner_id"`
 			Rating    int    `json:"rating"`
+			Answer    string `json:"answer"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
@@ -895,6 +1076,32 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return nil
 		}
 
+		var card db.Card
+		if err := database.NewSelect().Model(&card).Where("id = ? AND deleted_at IS NULL", cardID).Scan(req.Context()); err != nil {
+			http.Error(w, "card not found", http.StatusNotFound)
+			return nil
+		}
+
+		rating := body.Rating
+		var judgeResult *llm.JudgeResult
+
+		if card.CardType == db.CardTypeOpenText {
+			if body.Answer == "" {
+				http.Error(w, "answer required for open_text cards", http.StatusBadRequest)
+				return nil
+			}
+			result, err := llm.JudgeOpenText(req.Context(), card.Question, card.CorrectAnswer, card.QuestionJa, card.CorrectAnswerJa, body.Answer)
+			if err != nil {
+				return fmt.Errorf("judge open text: %w", err)
+			}
+			judgeResult = &result
+			if result.Correct {
+				rating = 3 // Good
+			} else {
+				rating = 1 // Again
+			}
+		}
+
 		var srsCard db.SRSCard
 		err = database.NewSelect().Model(&srsCard).
 			Where("card_id = ? AND learner_id = ?", cardID, body.LearnerID).
@@ -903,7 +1110,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			srsCard = *srs.InitCard(cardID, body.LearnerID)
 		}
 
-		if err := srs.ReviewCard(&srsCard, body.Rating); err != nil {
+		if err := srs.ReviewCard(&srsCard, rating); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return nil
 		}
@@ -919,7 +1126,10 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		return json.NewEncoder(w).Encode(srsCard)
+		return json.NewEncoder(w).Encode(struct {
+			SRSCard db.SRSCard       `json:"srs_card"`
+			Judge   *llm.JudgeResult `json:"judge,omitempty"`
+		}{SRSCard: srsCard, Judge: judgeResult})
 	})
 }
 
@@ -938,9 +1148,28 @@ func loadDeckCards(ctx context.Context, database *bun.DB, deck *db.Deck) error {
 
 func truncateDeck(deck *db.Deck) {
 	for _, c := range deck.Cards {
-		c.Distractors = truncate(c.Distractors, 3)
-		c.DistractorsJa = truncate(c.DistractorsJa, 3)
+		prepareCard(c)
 	}
+}
+
+func prepareCard(c *db.Card) {
+	c.Distractors = truncate(c.Distractors, 3)
+	c.DistractorsJa = truncate(c.DistractorsJa, 3)
+	opts := make([]string, len(c.Distractors)+1)
+	copy(opts, c.Distractors)
+	opts[len(c.Distractors)] = c.CorrectAnswer
+	c.Options = shuffled(opts)
+	optsJa := make([]string, len(c.DistractorsJa)+1)
+	copy(optsJa, c.DistractorsJa)
+	optsJa[len(c.DistractorsJa)] = c.CorrectAnswerJa
+	c.OptionsJa = shuffled(optsJa)
+}
+
+func shuffled(s []string) []string {
+	out := make([]string, len(s))
+	copy(out, s)
+	mathrand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	return out
 }
 
 func parseDeckID(req bunrouter.Request) (int64, error) {
@@ -949,6 +1178,14 @@ func parseDeckID(req bunrouter.Request) (int64, error) {
 
 func parseID(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
+}
+
+func generateShareToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func truncate(s []string, n int) []string {
