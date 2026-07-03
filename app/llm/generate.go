@@ -215,8 +215,10 @@ func Generate(ctx context.Context, systemPrompt, content string) ([]CardData, er
 }
 
 type JudgeResult struct {
-	Correct  bool   `json:"correct"`
-	Feedback string `json:"feedback"`
+	Correct         bool   `json:"correct"`
+	Feedback        string `json:"feedback,omitempty"`
+	CorrectAnswer   string `json:"correct_answer,omitempty"`
+	CorrectAnswerJa string `json:"correct_answer_ja,omitempty"`
 }
 
 const judgePrompt = `You are grading a learner's open-text answer to a flashcard question. Given the question, the correct answer, and the learner's answer, decide if the learner's response is correct.

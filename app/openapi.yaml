@@ -428,9 +428,10 @@ paths:
       description: |
         Records a review result and updates the FSRS schedule for the card.
 
-        Behaviour by card_type:
-        - **multiple_choice** / **self_assess**: send `rating` (1=Again, 2=Hard, 3=Good, 4=Easy). No `answer` needed.
-        - **open_text**: send `answer` (the learner's typed response). The server uses an LLM judge to grade it and derives the rating automatically (correct → Good/3, wrong → Again/1). Response includes a `judge` object with `correct` and `feedback`.
+        All card types send `answer` as a string. Behaviour by card_type:
+        - **self_assess**: send `answer` as a rating string `"1"`–`"4"` (1=Again, 2=Hard, 3=Good, 4=Easy).
+        - **multiple_choice**: send `answer` as the exact option string the learner selected. Server compares against the correct answer (case-insensitive) and derives rating (correct → Easy/4, wrong → Again/1). Response includes a `judge` object with `correct`, `correct_answer`, and `correct_answer_ja`.
+        - **open_text**: send `answer` as the learner's typed response. Server uses an LLM judge to grade it and derives rating (correct → Good/3, wrong → Again/1). Response includes a `judge` object with `correct` and `feedback`.
       operationId: submitCardReview
       tags: [Reviews]
       parameters:
@@ -441,18 +442,13 @@ paths:
           application/json:
             schema:
               type: object
-              required: [learner_id]
+              required: [learner_id, answer]
               properties:
                 learner_id:
                   type: string
-                rating:
-                  type: integer
-                  minimum: 1
-                  maximum: 4
-                  description: "FSRS rating: 1=Again, 2=Hard, 3=Good, 4=Easy. Required for multiple_choice and self_assess."
                 answer:
                   type: string
-                  description: "Learner's typed answer. Required for open_text cards."
+                  description: "The learner's answer. For self_assess: a rating string '1'–'4' (1=Again, 2=Hard, 3=Good, 4=Easy). For multiple_choice: the selected option string. For open_text: the typed response."
       responses:
         '200':
           description: Review recorded; updated SRS state returned
@@ -465,12 +461,19 @@ paths:
                     $ref: '#/components/schemas/SRSCard'
                   judge:
                     type: object
-                    description: Present only for open_text cards
+                    description: Present for open_text and multiple_choice cards
                     properties:
                       correct:
                         type: boolean
                       feedback:
                         type: string
+                        description: Explanation of the result. Present only for open_text cards.
+                      correct_answer:
+                        type: string
+                        description: The correct answer text (EN). Present only for multiple_choice cards.
+                      correct_answer_ja:
+                        type: string
+                        description: The correct answer text (JA). Present only for multiple_choice cards.
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':

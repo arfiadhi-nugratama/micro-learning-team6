@@ -11,6 +11,7 @@ import (
 	mathrand "math/rand/v2"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -1064,7 +1065,6 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 
 		var body struct {
 			LearnerID string `json:"learner_id"`
-			Rating    int    `json:"rating"`
 			Answer    string `json:"answer"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -1075,6 +1075,10 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			http.Error(w, "learner_id required", http.StatusBadRequest)
 			return nil
 		}
+		if body.Answer == "" {
+			http.Error(w, "answer required", http.StatusBadRequest)
+			return nil
+		}
 
 		var card db.Card
 		if err := database.NewSelect().Model(&card).Where("id = ? AND deleted_at IS NULL", cardID).Scan(req.Context()); err != nil {
@@ -1082,14 +1086,18 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return nil
 		}
 
-		rating := body.Rating
+		var rating int
 		var judgeResult *llm.JudgeResult
 
-		if card.CardType == db.CardTypeOpenText {
-			if body.Answer == "" {
-				http.Error(w, "answer required for open_text cards", http.StatusBadRequest)
+		switch card.CardType {
+		case db.CardTypeSelfAssess:
+			r, err := strconv.Atoi(body.Answer)
+			if err != nil || r < 1 || r > 4 {
+				http.Error(w, "answer must be a rating string: 1=Again, 2=Hard, 3=Good, 4=Easy", http.StatusBadRequest)
 				return nil
 			}
+			rating = r
+		case db.CardTypeOpenText:
 			result, err := llm.JudgeOpenText(req.Context(), card.Question, card.CorrectAnswer, card.QuestionJa, card.CorrectAnswerJa, body.Answer)
 			if err != nil {
 				return fmt.Errorf("judge open text: %w", err)
@@ -1100,6 +1108,21 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			} else {
 				rating = 1 // Again
 			}
+		case db.CardTypeMultipleChoice:
+			correct := strings.EqualFold(body.Answer, card.CorrectAnswer)
+			judgeResult = &llm.JudgeResult{
+				Correct:         correct,
+				CorrectAnswer:   card.CorrectAnswer,
+				CorrectAnswerJa: card.CorrectAnswerJa,
+			}
+			if correct {
+				rating = 4 // Easy
+			} else {
+				rating = 1 // Again
+			}
+		default:
+			http.Error(w, "unknown card type", http.StatusBadRequest)
+			return nil
 		}
 
 		var srsCard db.SRSCard
