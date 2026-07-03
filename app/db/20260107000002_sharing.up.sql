@@ -1,0 +1,2 @@
+ALTER TABLE decks ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private';
+ALTER TABLE decks ADD COLUMN share_token TEXT UNIQUE;

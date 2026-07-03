@@ -2,11 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
-	"math/rand/v2"
+	mathrand "math/rand/v2"
 	"net/http"
 	"strconv"
 	"sync"
@@ -759,6 +761,158 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		return nil
 	})
 
+	// --- learner deck create ---
+
+	g.POST("/user-decks", func(w http.ResponseWriter, req bunrouter.Request) error {
+		var body struct {
+			LearnerID string `json:"learner_id"`
+			Title     string `json:"title"`
+			TitleJa   string `json:"title_ja"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.LearnerID == "" {
+			http.Error(w, "learner_id required", http.StatusBadRequest)
+			return nil
+		}
+
+		deck := &db.Deck{
+			ModuleID:   "",
+			Title:      body.Title,
+			TitleJa:    body.TitleJa,
+			DeckType:   db.DeckTypeUser,
+			LearnerID:  body.LearnerID,
+			Visibility: db.DeckVisibilityPrivate,
+			CreatedAt:  time.Now(),
+		}
+		if _, err := database.NewInsert().Model(deck).Returning("*").Exec(req.Context()); err != nil {
+			return err
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		return json.NewEncoder(w).Encode(deck)
+	})
+
+	// --- sharing ---
+
+	g.POST("/user-decks/:deckID/share", func(w http.ResponseWriter, req bunrouter.Request) error {
+		deckID, err := parseDeckID(req)
+		if err != nil {
+			http.Error(w, "invalid deckID", http.StatusBadRequest)
+			return nil
+		}
+
+		var body struct {
+			LearnerID  string `json:"learner_id"`
+			Visibility string `json:"visibility"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.LearnerID == "" {
+			http.Error(w, "learner_id required", http.StatusBadRequest)
+			return nil
+		}
+		if body.Visibility != db.DeckVisibilityPrivate && body.Visibility != db.DeckVisibilityLink {
+			http.Error(w, "visibility must be 'private' or 'link'", http.StatusBadRequest)
+			return nil
+		}
+
+		var deck db.Deck
+		if err := database.NewSelect().Model(&deck).
+			Where("id = ? AND learner_id = ? AND deck_type = ? AND deleted_at IS NULL", deckID, body.LearnerID, db.DeckTypeUser).
+			Scan(req.Context()); err != nil {
+			http.Error(w, "deck not found", http.StatusNotFound)
+			return nil
+		}
+
+		if body.Visibility == db.DeckVisibilityLink && deck.ShareToken == nil {
+			token, err := generateShareToken()
+			if err != nil {
+				return fmt.Errorf("generate share token: %w", err)
+			}
+			deck.ShareToken = &token
+		}
+		deck.Visibility = body.Visibility
+
+		if _, err := database.NewUpdate().Model(&deck).
+			Column("visibility", "share_token").
+			WherePK().
+			Exec(req.Context()); err != nil {
+			return err
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(w).Encode(deck)
+	})
+
+	g.GET("/shared/:shareToken", func(w http.ResponseWriter, req bunrouter.Request) error {
+		token := req.Param("shareToken")
+
+		var deck db.Deck
+		if err := database.NewSelect().Model(&deck).
+			Where("share_token = ? AND visibility = ? AND deleted_at IS NULL", token, db.DeckVisibilityLink).
+			Scan(req.Context()); err != nil {
+			http.Error(w, "deck not found", http.StatusNotFound)
+			return nil
+		}
+
+		if err := loadDeckCards(req.Context(), database, &deck); err != nil {
+			return err
+		}
+		truncateDeck(&deck)
+
+		w.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(w).Encode(deck)
+	})
+
+	g.POST("/shared/:shareToken/copy", func(w http.ResponseWriter, req bunrouter.Request) error {
+		token := req.Param("shareToken")
+
+		var body struct {
+			LearnerID string `json:"learner_id"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.LearnerID == "" {
+			http.Error(w, "learner_id required", http.StatusBadRequest)
+			return nil
+		}
+
+		var src db.Deck
+		if err := database.NewSelect().Model(&src).
+			Where("share_token = ? AND visibility = ? AND deleted_at IS NULL", token, db.DeckVisibilityLink).
+			Scan(req.Context()); err != nil {
+			http.Error(w, "deck not found", http.StatusNotFound)
+			return nil
+		}
+
+		sourceDeckID := src.ID
+		copied := &db.Deck{
+			ModuleID:     src.ModuleID,
+			Title:        src.Title,
+			TitleJa:      src.TitleJa,
+			DeckType:     db.DeckTypeUser,
+			LearnerID:    body.LearnerID,
+			SourceDeckID: &sourceDeckID,
+			Visibility:   db.DeckVisibilityPrivate,
+			CreatedAt:    time.Now(),
+		}
+		if _, err := database.NewInsert().Model(copied).Returning("*").Exec(req.Context()); err != nil {
+			return err
+		}
+
+		if _, err := database.NewRaw(`
+			INSERT INTO deck_cards (deck_id, card_id)
+			SELECT ?, card_id FROM deck_cards WHERE deck_id = ?
+		`, copied.ID, sourceDeckID).Exec(req.Context()); err != nil {
+			return err
+		}
+
+		if err := loadDeckCards(req.Context(), database, copied); err != nil {
+			return err
+		}
+		truncateDeck(copied)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		return json.NewEncoder(w).Encode(copied)
+	})
+
 	// --- review endpoints ---
 
 	g.GET("/decks/:deckID/review", func(w http.ResponseWriter, req bunrouter.Request) error {
@@ -1014,7 +1168,7 @@ func prepareCard(c *db.Card) {
 func shuffled(s []string) []string {
 	out := make([]string, len(s))
 	copy(out, s)
-	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	mathrand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
 	return out
 }
 
@@ -1024,6 +1178,14 @@ func parseDeckID(req bunrouter.Request) (int64, error) {
 
 func parseID(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
+}
+
+func generateShareToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func truncate(s []string, n int) []string {

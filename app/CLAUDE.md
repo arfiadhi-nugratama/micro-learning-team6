@@ -33,7 +33,9 @@ Module: `github.com/dojo-product/team6`, Go 1.24.
 - API responses truncate distractors to 3; DB stores all LLM-generated distractors
 - Migrations use `bun/migrate` with embedded SQL files (`db/*.sql`, named `YYYYMMDDHHMMSS_name.up.sql`). No down migrations. `Migrate()` calls `m.Init()` then `m.Migrate()` at startup.
 - `moduleID` is always a path parameter, never fetched from a list
-- `decks.deck_type`: `system` (LLM-generated) or `user` (copied by learner). System decks are immutable.
+- `decks.deck_type`: `system` (LLM-generated) or `user` (copied from system or scratch-created by learner). System decks are immutable.
+- `decks.visibility`: `private` (default) or `link` (shareable via `share_token`). Only `user` decks can be shared.
+- `decks.share_token`: 32-char hex UUID, generated once on first share, stable. Used at `GET /shared/:shareToken`.
 - `deck_cards` junction table owns deck membership. `cards.deck_id` is the owning deck (system or user).
 - Copy-on-write: editing a user deck card clones the card row (owned by user deck) and swaps the `deck_cards` junction row. System card untouched.
 - FSRS ratings: 1=Again, 2=Hard, 3=Good, 4=Easy
