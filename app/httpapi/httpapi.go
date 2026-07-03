@@ -746,6 +746,14 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return nil
 		}
 
+		var deck db.Deck
+		if err := database.NewSelect().Model(&deck).
+			Where("id = ? AND deleted_at IS NULL", deckID).
+			Scan(req.Context()); err != nil {
+			http.Error(w, "deck not found", http.StatusNotFound)
+			return nil
+		}
+
 		var cards []*db.Card
 		if err := database.NewSelect().Model(&cards).
 			Join("JOIN deck_cards dc ON dc.card_id = card.id").
@@ -755,7 +763,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		}
 
 		now := time.Now()
-		var result []*db.Card
+		var dueCards []*db.Card
 		for _, card := range cards {
 			var srsCard db.SRSCard
 			err := database.NewSelect().Model(&srsCard).
@@ -764,18 +772,25 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			if err != nil {
 				card.Distractors = truncate(card.Distractors, 3)
 				card.DistractorsJa = truncate(card.DistractorsJa, 3)
-				result = append(result, card)
+				dueCards = append(dueCards, card)
 				continue
 			}
 			if !srsCard.Due.After(now) {
 				card.Distractors = truncate(card.Distractors, 3)
 				card.DistractorsJa = truncate(card.DistractorsJa, 3)
-				result = append(result, card)
+				dueCards = append(dueCards, card)
 			}
 		}
 
+		if dueCards == nil {
+			dueCards = []*db.Card{}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		return json.NewEncoder(w).Encode(result)
+		return json.NewEncoder(w).Encode(struct {
+			Deck  db.Deck    `json:"deck"`
+			Cards []*db.Card `json:"cards"`
+		}{Deck: deck, Cards: dueCards})
 	})
 
 	// --- feedback endpoints ---

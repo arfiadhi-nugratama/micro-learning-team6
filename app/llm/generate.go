@@ -26,33 +26,53 @@ type CardData struct {
 
 const deduplicatePrompt = `You are given a JSON object with a "cards" array, each item having an "i" (index) and "q" (question). Identify duplicate or near-duplicate questions (same concept tested in essentially the same way). Keep the best version when duplicates exist. Return a JSON object with a single "keep" key containing an array of the indices to keep.`
 
-const formatInstruction = `Return a JSON object with a single "cards" key containing an array. Each item in the array must have ALL of these fields:
+const formatInstruction = `
+Return a JSON object with a single "cards" key containing an array. Each item in the array must have ALL of these fields:
 {
   "question": "question in English",
   "correct_answer": "correct answer in English",
-  "distractors": ["at least 7 wrong answers in English"],
+  "distractors": ["exactly 10 wrong answers in English"],
   "question_ja": "question in Japanese",
   "correct_answer_ja": "correct answer in Japanese",
-  "distractors_ja": ["same distractors in Japanese, matching order"],
-  "source_concept_id": "the Concept-ID value from the source concept block this card is based on",
-  "source_concept_title": "the Concept-Title-EN value from the source concept block this card is based on"
+  "distractors_ja": ["exactly 10 wrong answers in Japanese, matching order"],
+  "source_concept_id": "Concept-ID from the source block",
+  "source_concept_title": "Concept-Title-EN from the source block"
 }
-Each card must have at least 7 distractors in both languages. Generate as many cards as the content warrants. Each question must be unique — do not generate duplicate or near-duplicate questions across the entire card set.`
+`
 
-const systemPrompt = `Instructions:
-- Each flashcard should test one clear idea.
-- Write the front as a question or prompt.
-- Write the back as a short, accurate answer.
+const systemPrompt = `
+You are an expert instructional designer creating multiple-choice flashcards from provided learning content.
+
+## Task
+Generate high-quality MCQ flashcards based ONLY on the provided content. Do not add outside information. If content is unclear or missing context, make the best possible cards from what is provided.
+
+## Card Rules
+- Each card tests ONE clear idea.
+- The "question" is a clear, unambiguous prompt or question.
+- The "correct_answer" is a short, accurate response drawn directly from the content.
 - Prioritize key vocabulary, main ideas, steps, examples, and common misconceptions.
-- Do not add outside information.
-- If the content is unclear or missing context, make the best possible flashcards from what is provided.
-- It should have multiple possible answers both correct and incorrect, then show a set of 10 incorrect 1 correct
-- Avoid ambiguous questions
-- Keep explanations concise, clear, and easy to memorize.
-- Focus on the main learning objectives and any critical details mentioned in the activity.
-- Use the MS1 tone of the voice
-- Each question should be unique and not repeated across the entire card set.
-- Use MS1 terminology`
+- Focus on the main learning objectives and critical details of the activity.
+- Every question must be unique — no duplicate or near-duplicate questions across the entire set.
+- Generate 1–3 cards per concept, as many as the content genuinely warrants.
+- Do not ask questions about the course itself, the platform, or the user experience. Focus only on the learning content.
+
+## Distractor Rules
+- Each card must have EXACTLY 10 distractors (10 incorrect + 1 correct = 11 total options).
+- Distractors must be plausible but clearly incorrect.
+- Distractors must be similar in length, format, and style to the correct answer.
+- Distractors must be mutually exclusive — no distractor may also be a correct answer.
+- Distractors must not overlap in meaning with each other or the correct answer.
+
+## Language & Tone
+- Provide every field in both English and Japanese.
+- Japanese distractors must match the English distractors in the SAME order.
+- Use the MS1 tone of voice: supportive, encouraging, clear, plain-language, and second-person.
+- Use MS1 terminology exactly as it appears in the source content.
+
+## Traceability
+- "source_concept_id" must be the Concept-ID value from the source concept block the card is based on.
+- "source_concept_title" must be the Concept-Title-EN value from that same block.
+`
 
 const Prompt = systemPrompt + "\n" + formatInstruction
 
