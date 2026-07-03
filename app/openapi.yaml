@@ -558,6 +558,11 @@ components:
           items:
             type: string
           description: Truncated to 3 in API responses; DB stores all LLM-generated distractors.
+        options:
+          type: array
+          items:
+            type: string
+          description: Shuffled distractors + correct_answer. Use this for displaying answer choices.
         question_ja:
           type: string
         correct_answer_ja:
@@ -566,6 +571,11 @@ components:
           type: array
           items:
             type: string
+        options_ja:
+          type: array
+          items:
+            type: string
+          description: Shuffled distractors_ja + correct_answer_ja.
         source_concept_id:
           type: string
         source_concept_title:

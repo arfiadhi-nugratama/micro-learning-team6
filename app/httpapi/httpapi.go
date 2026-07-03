@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"sync"
@@ -325,8 +326,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return err
 		}
 
-		card.Distractors = truncate(card.Distractors, 3)
-		card.DistractorsJa = truncate(card.DistractorsJa, 3)
+		prepareCard(&card)
 
 		w.Header().Set("Content-Type", "application/json")
 		return json.NewEncoder(w).Encode(card)
@@ -379,8 +379,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return err
 		}
 
-		card.Distractors = truncate(card.Distractors, 3)
-		card.DistractorsJa = truncate(card.DistractorsJa, 3)
+		prepareCard(card)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -599,8 +598,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 		if err := database.NewSelect().Model(&result).Where("id = ?", newCardID).Scan(req.Context()); err != nil {
 			return err
 		}
-		result.Distractors = truncate(result.Distractors, 3)
-		result.DistractorsJa = truncate(result.DistractorsJa, 3)
+		prepareCard(&result)
 
 		w.Header().Set("Content-Type", "application/json")
 		return json.NewEncoder(w).Encode(result)
@@ -649,8 +647,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 			return err
 		}
 
-		card.Distractors = truncate(card.Distractors, 3)
-		card.DistractorsJa = truncate(card.DistractorsJa, 3)
+		prepareCard(card)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -770,14 +767,12 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 				Where("card_id = ? AND learner_id = ?", card.ID, learnerID).
 				Scan(req.Context())
 			if err != nil {
-				card.Distractors = truncate(card.Distractors, 3)
-				card.DistractorsJa = truncate(card.DistractorsJa, 3)
+				prepareCard(card)
 				dueCards = append(dueCards, card)
 				continue
 			}
 			if !srsCard.Due.After(now) {
-				card.Distractors = truncate(card.Distractors, 3)
-				card.DistractorsJa = truncate(card.DistractorsJa, 3)
+				prepareCard(card)
 				dueCards = append(dueCards, card)
 			}
 		}
@@ -938,9 +933,28 @@ func loadDeckCards(ctx context.Context, database *bun.DB, deck *db.Deck) error {
 
 func truncateDeck(deck *db.Deck) {
 	for _, c := range deck.Cards {
-		c.Distractors = truncate(c.Distractors, 3)
-		c.DistractorsJa = truncate(c.DistractorsJa, 3)
+		prepareCard(c)
 	}
+}
+
+func prepareCard(c *db.Card) {
+	c.Distractors = truncate(c.Distractors, 3)
+	c.DistractorsJa = truncate(c.DistractorsJa, 3)
+	opts := make([]string, len(c.Distractors)+1)
+	copy(opts, c.Distractors)
+	opts[len(c.Distractors)] = c.CorrectAnswer
+	c.Options = shuffled(opts)
+	optsJa := make([]string, len(c.DistractorsJa)+1)
+	copy(optsJa, c.DistractorsJa)
+	optsJa[len(c.DistractorsJa)] = c.CorrectAnswerJa
+	c.OptionsJa = shuffled(optsJa)
+}
+
+func shuffled(s []string) []string {
+	out := make([]string, len(s))
+	copy(out, s)
+	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	return out
 }
 
 func parseDeckID(req bunrouter.Request) (int64, error) {

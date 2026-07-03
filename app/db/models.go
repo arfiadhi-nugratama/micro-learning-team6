@@ -25,14 +25,16 @@ type Deck struct {
 
 type Card struct {
 	bun.BaseModel        `bun:"table:cards"`
-	ID                   int64     `bun:"id,pk,autoincrement" json:"id"`
-	DeckID               int64     `bun:"deck_id,notnull" json:"deck_id"`
-	Question             string    `bun:"question,notnull" json:"question"`
-	CorrectAnswer        string    `bun:"correct_answer,notnull" json:"correct_answer"`
-	Distractors          []string  `bun:"distractors,array,notnull" json:"distractors"`
-	QuestionJa           string    `bun:"question_ja,notnull" json:"question_ja"`
-	CorrectAnswerJa      string    `bun:"correct_answer_ja,notnull" json:"correct_answer_ja"`
-	DistractorsJa        []string  `bun:"distractors_ja,array,notnull" json:"distractors_ja"`
+	ID                   int64      `bun:"id,pk,autoincrement" json:"id"`
+	DeckID               int64      `bun:"deck_id,notnull" json:"deck_id"`
+	Question             string     `bun:"question,notnull" json:"question"`
+	CorrectAnswer        string     `bun:"correct_answer,notnull" json:"correct_answer"`
+	Distractors          []string   `bun:"distractors,array,notnull" json:"distractors"`
+	Options              []string   `bun:"-" json:"options,omitempty"`
+	QuestionJa           string     `bun:"question_ja,notnull" json:"question_ja"`
+	CorrectAnswerJa      string     `bun:"correct_answer_ja,notnull" json:"correct_answer_ja"`
+	DistractorsJa        []string   `bun:"distractors_ja,array,notnull" json:"distractors_ja"`
+	OptionsJa            []string   `bun:"-" json:"options_ja,omitempty"`
 	SourceConceptID      string     `bun:"source_concept_id,notnull" json:"source_concept_id,omitempty"`
 	SourceConceptTitle   string     `bun:"source_concept_title,notnull" json:"source_concept_title,omitempty"`
 	CreatedAt            time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
