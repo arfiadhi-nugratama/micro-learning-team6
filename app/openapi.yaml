@@ -14,7 +14,9 @@ tags:
   - name: System Decks
     description: AI-generated read-only decks, one per course module
   - name: Personal Decks
-    description: Learner-owned copies of system decks with FSRS progress
+    description: Learner-owned decks — copied from system decks or created from scratch
+  - name: Sharing
+    description: Share personal decks via link and copy shared decks
   - name: Reviews
     description: Spaced repetition study sessions and card rating
   - name: Feedback
@@ -267,6 +269,135 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/DeckWithCards'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /user-decks:
+    post:
+      summary: Create a blank personal deck
+      description: Creates a learner-owned deck from scratch (no source deck).
+      operationId: createUserDeck
+      tags: [Personal Decks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [learner_id]
+              properties:
+                learner_id:
+                  type: string
+                title:
+                  type: string
+                title_ja:
+                  type: string
+      responses:
+        '201':
+          description: Deck created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deck'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /user-decks/{deckID}/share:
+    post:
+      summary: Set deck visibility and generate share token
+      description: |
+        Set `visibility` to `"link"` to share the deck — a stable `share_token` is generated on first share and reused on subsequent calls.
+        Set `visibility` to `"private"` to revoke access (token preserved for future re-sharing).
+      operationId: shareUserDeck
+      tags: [Sharing]
+      parameters:
+        - $ref: '#/components/parameters/deckID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [learner_id, visibility]
+              properties:
+                learner_id:
+                  type: string
+                visibility:
+                  type: string
+                  enum: [private, link]
+      responses:
+        '200':
+          description: Deck with updated visibility and share_token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deck'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /shared/{shareToken}:
+    get:
+      summary: View a shared deck
+      description: Public endpoint — no auth required. Returns 404 if deck visibility is not `link`.
+      operationId: getSharedDeck
+      tags: [Sharing]
+      parameters:
+        - name: shareToken
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Shared deck with cards
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeckWithCards'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /shared/{shareToken}/copy:
+    post:
+      summary: Copy a shared deck into the caller's collection
+      description: Creates a new personal deck for the learner with `source_deck_id` pointing to the shared deck.
+      operationId: copySharedDeck
+      tags: [Sharing]
+      parameters:
+        - name: shareToken
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [learner_id]
+              properties:
+                learner_id:
+                  type: string
+      responses:
+        '201':
+          description: Personal deck created from shared deck
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeckWithCards'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -532,7 +663,15 @@ components:
         source_deck_id:
           type: integer
           format: int64
-          description: ID of the system deck this was copied from (user decks only)
+          description: ID of the deck this was copied from (user decks only)
+        visibility:
+          type: string
+          enum: [private, link]
+          description: "'private' — only the owner can access. 'link' — anyone with the share_token can view."
+        share_token:
+          type: string
+          nullable: true
+          description: 32-char hex token. Present once deck has been shared at least once. Stable across share/unshare cycles.
         created_at:
           type: string
           format: date-time

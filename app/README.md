@@ -34,117 +34,174 @@ DATABASE_URL=postgres://team6:team6@localhost:5432/team6?sslmode=disable \
   go run .
 ```
 
-Migrations run automatically at startup (`CREATE TABLE IF NOT EXISTS`).
+Migrations run automatically at startup.
 
 ## API
 
-### POST /modules/:moduleID/deck
+### System Decks
 
-Generate a new flashcard deck for a module. Fetches module structure via gRPC, sends to `gpt-4o-mini`, persists deck + cards.
-
-Query params:
-- `locale` — content locale (default `en`)
+#### POST /modules/:moduleID/deck
+Generate a new flashcard deck for a module. Fetches module structure via gRPC, sends to `gpt-4.1-mini`, persists deck + cards.
 
 Response: deck object with cards. Each card has `distractors` truncated to 3.
 
-### GET /modules/:moduleID/deck
-
+#### GET /modules/:moduleID/deck
 Fetch the most recent deck for a module (with cards).
 
-### GET /decks
+#### GET /decks
+List all system decks. Returns each deck with `card_count` — no card details.
 
-List all system decks (for deck picker UI). Returns each deck with `card_count` — no card details.
+#### GET /decks/:deckID
+Fetch a system deck by ID with cards.
 
-### PUT /decks/:deckID/cards/:cardID
-
-Edit a card in a system deck (in place — no copy-on-write).
-
-Body: same fields as `POST /decks/:deckID/cards`. `source_concept_id` and `source_concept_title` updated only if provided and non-empty.
-
-### POST /decks/:deckID/cards
-
+#### POST /decks/:deckID/cards
 Add a new card to a system deck.
 
-Body:
-```json
-{
-  "question": "string",
-  "correct_answer": "string",
-  "distractors": ["string"],
-  "question_ja": "string",
-  "correct_answer_ja": "string",
-  "distractors_ja": ["string"],
-  "source_concept_id": "string",
-  "source_concept_title": "string"
-}
-```
+#### PUT /decks/:deckID/cards/:cardID
+Edit a card in a system deck (in place).
 
-### DELETE /decks/:deckID/cards/:cardID
+#### DELETE /decks/:deckID/cards/:cardID
+Soft-delete a card from a system deck.
 
-Remove a card from a system deck (removes junction row and deletes card). Returns `204 No Content`.
+#### DELETE /decks/:deckID
+Soft-delete a system deck.
 
-### DELETE /decks/:deckID
+---
 
-Delete a system deck by ID. Returns `204 No Content`.
+### Personal Decks
 
-### POST /decks/:deckID/copy
+Personal decks are learner-owned. They can be copied from a system deck (shallow copy, copy-on-write on edit) or created from scratch.
 
-Shallow-copy a system deck into a user deck.
-
-Body: `{"learner_id": "string"}`
-
-Response: user deck object with cards (pointing to system cards until edited).
-
-### GET /learners/:learnerID/decks
-
-List all user decks for a learner (with cards).
-
-### PUT /user-decks/:deckID/cards/:cardID
-
-Edit a card in a user deck. Triggers copy-on-write if the card is still owned by the system deck — a new card row is created and the junction swapped. If the card was already cloned (owned by this user deck), updates in place.
-
-### POST /user-decks/:deckID/cards
-
-Add a new card to a user deck.
-
-### DELETE /user-decks/:deckID/cards/:cardID
-
-Remove a card from a user deck (junction row only). Does not affect the system deck.
-
-### DELETE /user-decks/:deckID
-
-Delete a user deck and any cards it owns.
-
-### GET /decks/:deckID/review
-
-Get cards due for review for a learner.
-
-Query params:
-- `learner_id` — required
-
-Returns cards with no SRS record, or whose `due` time has passed.
-
-### POST /cards/:cardID/review
-
-Submit a review rating for a card. Creates or updates the SRS record.
+#### POST /user-decks
+Create a blank personal deck from scratch.
 
 Body:
 ```json
 {
   "learner_id": "string",
-  "rating": 1
+  "title": "string",
+  "title_ja": "string"
 }
 ```
 
-Ratings: `1` = Again, `2` = Hard, `3` = Good, `4` = Easy (FSRS scale).
+#### POST /decks/:deckID/copy
+Shallow-copy a system deck into a personal deck.
+
+Body: `{"learner_id": "string"}`
+
+#### GET /learners/:learnerID/decks
+List all personal decks for a learner (with cards).
+
+#### DELETE /user-decks/:deckID
+Soft-delete a personal deck and any cards it owns.
+
+#### POST /user-decks/:deckID/cards
+Add a new card to a personal deck.
+
+#### PUT /user-decks/:deckID/cards/:cardID
+Edit a card. Triggers copy-on-write if the card is owned by a system deck.
+
+#### DELETE /user-decks/:deckID/cards/:cardID
+Remove a card from a personal deck.
+
+---
+
+### Sharing
+
+#### POST /user-decks/:deckID/share
+Set visibility and generate a share token.
+
+Body:
+```json
+{
+  "learner_id": "string",
+  "visibility": "link"
+}
+```
+
+`visibility`: `"private"` (default) or `"link"` (shareable). On first share, a stable `share_token` is generated. Re-sharing reuses the same token. Setting back to `"private"` revokes access without invalidating the token.
+
+Response: deck object with `share_token`.
+
+#### GET /shared/:shareToken
+View a shared deck (no auth required). Returns 404 if deck is private.
+
+#### POST /shared/:shareToken/copy
+Copy a shared deck into the caller's collection.
+
+Body: `{"learner_id": "string"}`
+
+Response: new personal deck with cards, `source_deck_id` pointing to the shared deck.
+
+---
+
+### Reviews
+
+#### GET /decks/:deckID/review
+Get cards due for review for a learner.
+
+Query params: `learner_id` — required
+
+Returns cards with no SRS record or whose `due` time has passed.
+
+#### POST /cards/:cardID/review
+Submit a review for a card. Creates or updates the SRS record.
+
+Body:
+```json
+{
+  "learner_id": "string",
+  "rating": 3,
+  "answer": "optional — required for open_text cards"
+}
+```
+
+Ratings: `1`=Again, `2`=Hard, `3`=Good, `4`=Easy.
+
+Card type behaviour:
+- `multiple_choice` / `self_assess` — send `rating`. No `answer` needed.
+- `open_text` — send `answer`. LLM judges correctness; rating derived automatically (correct→3, wrong→1). Response includes `judge: {correct, feedback}`.
+
+---
+
+### Feedback
+
+#### POST /cards/:cardID/feedback
+Submit feedback on a card.
+
+Body: `{"learner_id": "string", "category": "wrong_answer", "description": "optional"}`
+
+Categories: `wrong_answer`, `wrong_distractor`, `unclear_question`, `bad_translation`, `other`
+
+#### GET /cards/:cardID/feedback
+List feedback for a card.
+
+#### GET /decks/:deckID/feedback
+List all feedback for cards in a deck.
+
+---
+
+## Card Types
+
+| Type | Description |
+|---|---|
+| `multiple_choice` | Shuffled `options` / `options_ja` — correct answer mixed in |
+| `self_assess` | Show question + answer; learner self-rates 1–4 |
+| `open_text` | Learner types answer; LLM grades it |
+
+---
 
 ## Schema
 
 ```
-decks       id, module_id, title, deck_type, learner_id, source_deck_id, created_at, deleted_at
-deck_cards  id, deck_id, card_id          (junction — deck membership; COW swaps card_id here)
-cards       id, deck_id (owner), question, correct_answer, distractors TEXT[], question_ja, correct_answer_ja, distractors_ja TEXT[], source_concept_id, source_concept_title, created_at, deleted_at
-srs_cards   id, card_id, learner_id, due, stability, difficulty, reps, lapses, state, last_review
+decks         id, module_id, title, title_ja, deck_type, learner_id, source_deck_id,
+              visibility, share_token, created_at, deleted_at
+deck_cards    id, deck_id, card_id
+cards         id, deck_id, card_type, question, correct_answer, distractors TEXT[],
+              question_ja, correct_answer_ja, distractors_ja TEXT[],
+              source_concept_id, source_concept_title, created_at, deleted_at
+srs_cards     id, card_id, learner_id, due, stability, difficulty, reps, lapses, state, last_review
+card_feedback id, card_id, learner_id, category, description, created_at
 ```
 
-All delete operations are soft deletes (`deleted_at = now()`). Queries filter `deleted_at IS NULL`. See `openapi.yaml` for full API spec.
+All deletes are soft (`deleted_at = now()`). See `openapi.yaml` for full spec.
