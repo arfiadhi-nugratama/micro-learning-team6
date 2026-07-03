@@ -185,7 +185,8 @@ func (c *Client) GetModuleContent(ctx context.Context, moduleID string) (ModuleC
 
 		for _, activity := range unit.GetActivities() {
 			at := activity.GetActivityType()
-			if at == "quiz" || at == "exercise" {
+
+			if at == "quiz" || at == "exercise" || at == "project" || at == "challenge" {
 				continue
 			}
 			sb.WriteString("Activity: ")

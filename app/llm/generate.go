@@ -187,7 +187,7 @@ func Generate(ctx context.Context, systemPrompt, content string) ([]CardData, er
 	fullPrompt := systemPrompt + "\n" + schemaPrompt
 
 	resp, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model: "gpt-5.4-mini",
+		Model: "gpt-5.5",
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(fullPrompt),
 			openai.UserMessage(content),
