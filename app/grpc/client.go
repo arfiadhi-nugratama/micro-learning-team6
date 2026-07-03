@@ -3,16 +3,18 @@ package grpc
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
-	"strings"
 
 	apiv1 "github.com/dojo-product/ms1-proto/sdk-go/cmsbff/api/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+//go:embed stub.json
+var stubJSON []byte
 
 type Client struct {
 	conn            *grpc.ClientConn
@@ -108,132 +110,21 @@ func (c *Client) fetchConceptBody(ctx context.Context, conceptID, locale string)
 
 // UnitContent holds the content for a single unit, ready to send to the LLM.
 type UnitContent struct {
-	UnitTitle string
-	Content   string
+	UnitTitle string `json:"unit_title"`
+	Content   string `json:"content"`
 }
 
 // ModuleContent holds all unit chunks plus the localized module titles.
 type ModuleContent struct {
-	TitleEN string
-	TitleJA string
-	Units   []UnitContent
+	TitleEN string        `json:"title_en"`
+	TitleJA string        `json:"title_ja"`
+	Units   []UnitContent `json:"units"`
 }
 
 func (c *Client) GetModuleContent(ctx context.Context, moduleID string) (ModuleContent, error) {
-	slog.InfoContext(ctx, "grpc GetModuleNavTree", "module_id", moduleID, "locale", "en")
-	respEN, err := c.svc.GetModuleNavTree(ctx, &apiv1.GetModuleNavTreeRequest{
-		ModuleId: moduleID,
-		Locale:   "en",
-	})
-	if err != nil {
-		return ModuleContent{}, fmt.Errorf("GetModuleNavTree en: %w", err)
+	var moduleContent ModuleContent
+	if err := json.Unmarshal(stubJSON, &moduleContent); err != nil {
+		return ModuleContent{}, fmt.Errorf("unmarshal stub: %w", err)
 	}
-	modEN := respEN.GetModule()
-	if modEN == nil {
-		return ModuleContent{}, fmt.Errorf("no module in response")
-	}
-
-	// build a sysId→ja concept title/body lookup
-	jaConceptTitle := map[string]string{}
-	jaConceptBody := map[string]string{}
-
-	slog.InfoContext(ctx, "grpc GetModuleNavTree", "module_id", moduleID, "locale", "ja")
-	respJA, err := c.svc.GetModuleNavTree(ctx, &apiv1.GetModuleNavTreeRequest{
-		ModuleId: moduleID,
-		Locale:   "ja",
-	})
-	if err != nil {
-		return ModuleContent{}, fmt.Errorf("GetModuleNavTree ja-JP: %w", err)
-	}
-	if respJA.GetModule() != nil {
-		for _, unit := range respJA.GetModule().GetUnits() {
-			for _, activity := range unit.GetActivities() {
-				for _, concept := range activity.GetConcepts() {
-					jaConceptTitle[concept.GetSysId()] = concept.GetTitle()
-				}
-			}
-		}
-		if c.contentfulURL != "" && c.contentfulToken != "" {
-			for id := range jaConceptTitle {
-				body, ferr := c.fetchConceptBody(ctx, id, "ja-JP")
-				if ferr != nil {
-					return ModuleContent{}, fmt.Errorf("fetchConceptBody ja-JP %s: %w", id, ferr)
-				}
-				if body == "" {
-					return ModuleContent{}, fmt.Errorf("fetchConceptBody ja-JP %s: empty body", id)
-				}
-				jaConceptBody[id] = body
-			}
-		}
-	}
-
-	moduleTitleEN := modEN.GetTitle()
-	moduleTitleJA := ""
-	if respJA.GetModule() != nil {
-		moduleTitleJA = respJA.GetModule().GetTitle()
-	}
-	var units []UnitContent
-
-	for _, unit := range modEN.GetUnits() {
-		var sb strings.Builder
-		sb.WriteString("Module: ")
-		sb.WriteString(moduleTitleEN)
-		sb.WriteString("\n\n")
-		sb.WriteString("Unit: ")
-		sb.WriteString(unit.GetTitle())
-		sb.WriteString("\n\n")
-
-		for _, activity := range unit.GetActivities() {
-			at := activity.GetActivityType()
-			if at == "quiz" || at == "exercise" {
-				continue
-			}
-			sb.WriteString("Activity: ")
-			sb.WriteString(activity.GetTitle())
-			sb.WriteString("\n\n")
-
-			for _, concept := range activity.GetConcepts() {
-				id := concept.GetSysId()
-
-				sb.WriteString("Concept-ID: ")
-				sb.WriteString(id)
-				sb.WriteString("\n")
-
-				// EN block
-				sb.WriteString("Concept-Title-EN: ")
-				sb.WriteString(concept.GetTitle())
-				sb.WriteString("\n")
-				if c.contentfulURL != "" && c.contentfulToken != "" {
-					body, ferr := c.fetchConceptBody(ctx, id, "en-US")
-					if ferr != nil {
-						return ModuleContent{}, fmt.Errorf("fetchConceptBody en-US %s: %w", id, ferr)
-					}
-					if body == "" {
-						return ModuleContent{}, fmt.Errorf("fetchConceptBody en-US %s: empty body", id)
-					}
-					sb.WriteString("Concept-Body-EN: ")
-					sb.WriteString(body)
-					sb.WriteString("\n")
-				}
-
-				// JA block
-				if jaTitle, ok := jaConceptTitle[id]; ok {
-					sb.WriteString("Concept-Title-JA: ")
-					sb.WriteString(jaTitle)
-					sb.WriteString("\n")
-				}
-				if jaBody, ok := jaConceptBody[id]; ok {
-					sb.WriteString("Concept-Body-JA: ")
-					sb.WriteString(jaBody)
-					sb.WriteString("\n")
-				}
-
-				sb.WriteString("\n")
-			}
-		}
-
-		units = append(units, UnitContent{UnitTitle: unit.GetTitle(), Content: sb.String()})
-	}
-
-	return ModuleContent{TitleEN: moduleTitleEN, TitleJA: moduleTitleJA, Units: units}, nil
+	return moduleContent, nil
 }
