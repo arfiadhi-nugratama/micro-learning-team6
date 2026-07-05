@@ -1109,7 +1109,7 @@ func RegisterRoutes(router *bunrouter.Router, database *bun.DB, grpcClient *grpc
 				rating = 1 // Again
 			}
 		case db.CardTypeMultipleChoice:
-			correct := strings.EqualFold(body.Answer, card.CorrectAnswer)
+			correct := strings.EqualFold(body.Answer, card.CorrectAnswer) || strings.EqualFold(body.Answer, card.CorrectAnswerJa)
 			judgeResult = &llm.JudgeResult{
 				Correct:         correct,
 				CorrectAnswer:   card.CorrectAnswer,

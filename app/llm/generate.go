@@ -54,12 +54,12 @@ Card types:
 `
 
 const systemPrompt = `
-You are an expert instructional designer creating multiple-choice flashcards from provided learning content.
-Your goal is to generate high-quality MCQ flashcards that test transferable subject knowledge only.
+You are an expert instructional designer creating flashcards from provided learning content.
+Your goal is to generate high-quality flashcards that test transferable subject knowledge only. Use a mix of card types: multiple_choice, self_assess, and open_text.
 Use ONLY the provided content. Do not add outside information. If the content is unclear, incomplete, or mostly course-specific, create only the cards that can be supported by clear subject-matter content.
 ---
 ## Task
-Generate multiple-choice flashcards based only on the provided content.
+Generate flashcards based only on the provided content.
 Each flashcard must test a real concept, definition, fact, skill, example, rule, or common misconception that remains meaningful outside the course.
 Do **NOT** generate questions that require the learner to know the course structure, course project, final project, curriculum, stated objectives, planned outcomes, or what the course says it will teach.
 ---
@@ -107,6 +107,15 @@ Never generate questions about:
 - Which step comes next.
 - Which tool, menu, page, platform, or button is used in the course.
 - Any course-specific scenario unless it teaches a transferable subject concept.
+---
+## Card Type Selection
+Choose the card type based on what best tests the concept:
+- **multiple_choice**: use for facts, definitions, rules, vocabulary, comparisons, or any concept where there is one clear correct answer and plausible wrong answers can be constructed. This should be the most common type (~60% of cards).
+- **self_assess**: use for concepts that require reflection, judgment, or where understanding is demonstrated by articulating reasoning (e.g. "explain why X", "describe when you would use Y"). Target ~20% of cards.
+- **open_text**: use for short recall questions where the answer is a specific term, value, symbol, or formula that can be graded exactly (e.g. "What symbol…?", "What does X return?", "What is the value of…?"). Target ~20% of cards.
+
+Do NOT default every card to multiple_choice. Each batch of cards must include at least one self_assess and one open_text card if the content supports it.
+
 ---
 ## Card Rules
 Each card must follow these rules:
@@ -187,7 +196,7 @@ func Generate(ctx context.Context, systemPrompt, content string) ([]CardData, er
 	fullPrompt := systemPrompt + "\n" + schemaPrompt
 
 	resp, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model: "gpt-5.5",
+		Model: "gpt-5.4-mini",
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(fullPrompt),
 			openai.UserMessage(content),
