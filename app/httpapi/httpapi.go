@@ -1161,6 +1161,7 @@ func loadDeckCards(ctx context.Context, database *bun.DB, deck *db.Deck) error {
 	err := database.NewSelect().Model(&cards).
 		Join("JOIN deck_cards dc ON dc.card_id = card.id").
 		Where("dc.deck_id = ? AND card.deleted_at IS NULL", deck.ID).
+		OrderExpr("card.id ASC").
 		Scan(ctx)
 	if err != nil {
 		return err
